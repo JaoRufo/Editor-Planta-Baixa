@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Editor DXF</title>
+
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+
+  <body>
+    <!--
+    ================================================================
+    BARRA SUPERIOR
+    ================================================================
+    -->
+
+    <header class="toolbar">
+      <div class="toolbar-title">
+        <h1>Editor DXF</h1>
+
+        <span> Protótipo </span>
+      </div>
+
+      <!--
+        Coordenadas atuais do mouse
+        -->
+
+      <div id="coordinates" class="coordinates">
+        <div>
+          X:
+          <strong id="coordinate-x"> 0.000 </strong>
+        </div>
+
+        <div>
+          Y:
+          <strong id="coordinate-y"> 0.000 </strong>
+        </div>
+      </div>
+    </header>
+
+    <!--
+    ================================================================
+    ÁREA PRINCIPAL
+    ================================================================
+    -->
+
+    <main class="workspace">
+      <!--
+        Loading
+        -->
+
+      <div id="loading" class="loading">Carregando Planta...</div>
+
+      <!--
+        Mensagem de erro
+        -->
+
+      <div id="error" class="error hidden"></div>
+
+      <!--
+        ============================================================
+        CANVAS
+        ============================================================
+        -->
+
+      <div class="canvas-container">
+        <svg id="dxf-canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+
+      <!--
+        ============================================================
+        PAINEL DE PROPRIEDADES DA ENTIDADE
+        ============================================================
+        -->
+
+      <aside id="entity-panel" class="entity-panel hidden">
+        <div class="entity-panel-header">
+          <div>
+            <span class="entity-panel-label">ENTIDADE SELECIONADA</span>
+
+            <h2 id="entity-panel-type">LINE</h2>
+          </div>
+
+          <button
+            id="entity-panel-close"
+            class="entity-panel-close"
+            type="button"
+            title="Fechar seleção"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="entity-panel-content">
+          <!--
+            Informações gerais
+            -->
+
+          <section class="entity-section">
+            <h3>Identificação</h3>
+
+            <div class="property-row">
+              <span>Tipo</span>
+
+              <strong id="entity-type">-</strong>
+            </div>
+
+            <div class="property-row">
+              <span>ID</span>
+
+              <strong id="entity-id">-</strong>
+            </div>
+
+            <div class="property-row">
+              <span>Layer</span>
+
+              <strong id="entity-layer">-</strong>
+            </div>
+          </section>
+
+          <!--
+            Propriedades específicas da LWPOLYLINE
+            -->
+
+          <section id="polyline-properties" class="entity-section hidden">
+            <h3>Polilinha</h3>
+
+            <div class="property-row">
+              <span>Vértices</span>
+
+              <strong id="entity-vertex-count">-</strong>
+            </div>
+
+            <div class="property-row">
+              <span>Fechada</span>
+
+              <strong id="entity-closed">-</strong>
+            </div>
+
+            <div class="property-row">
+              <span>Comprimento</span>
+
+              <strong id="entity-polyline-length">-</strong>
+            </div>
+          </section>
+
+          <!--
+            Segmento selecionado
+            -->
+
+          <section id="segment-properties" class="entity-section hidden">
+            <h3>Segmento selecionado</h3>
+
+            <div class="property-row">
+              <span>Segmento</span>
+
+              <strong id="entity-segment-index">-</strong>
+            </div>
+
+            <div class="property-row">
+              <span>Distância</span>
+
+              <strong id="entity-segment-distance">-</strong>
+            </div>
+          </section>
+
+          <!--
+            Ponto inicial da LINE
+            -->
+
+          <section id="line-start-section" class="entity-section hidden">
+            <h3>Início</h3>
+
+            <div class="property-row">
+              <span>X</span>
+
+              <strong id="entity-start-x">-</strong>
+            </div>
+
+            <div class="property-row">
+              <span>Y</span>
+
+              <strong id="entity-start-y">-</strong>
+            </div>
+          </section>
+
+          <!--
+            Ponto final da LINE
+            -->
+
+          <section id="line-end-section" class="entity-section hidden">
+            <h3>Fim</h3>
+
+            <div class="property-row">
+              <span>X</span>
+
+              <strong id="entity-end-x">-</strong>
+            </div>
+
+            <div class="property-row">
+              <span>Y</span>
+
+              <strong id="entity-end-y">-</strong>
+            </div>
+          </section>
+
+          <!--
+            Medidas da LINE
+            -->
+
+          <section id="line-measure-section" class="entity-section hidden">
+            <h3>Medidas</h3>
+
+            <div class="property-row">
+              <span>Comprimento</span>
+
+              <strong id="entity-length">-</strong>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <!--
+      ================================================================
+      PAINEL DE SELEÇÃO POR ÁREA
+      ================================================================
+      -->
+
+      <aside id="selection-panel" class="selection-panel hidden">
+        <div class="selection-panel-header">
+          <div>
+            <span class="selection-panel-label">SELEÇÃO POR ÁREA</span>
+
+            <h2>Entidades selecionadas</h2>
+          </div>
+
+          <button
+            id="selection-panel-close"
+            class="selection-panel-close"
+            type="button"
+            title="Limpar seleção"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="selection-panel-summary">
+          <div class="selection-count">
+            <span>Total</span>
+
+            <strong id="selection-count">0</strong>
+          </div>
+        </div>
+
+        <div id="selection-list" class="selection-list"></div>
+      </aside>
+    </main>
+
+    <!--
+    ================================================================
+    JAVASCRIPT
+    ================================================================
+    -->
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

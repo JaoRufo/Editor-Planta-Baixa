@@ -1,0 +1,903 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+
+  background: #111111;
+
+  color: #ffffff;
+
+  overflow: hidden;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Barra superior
+|--------------------------------------------------------------------------
+*/
+
+.toolbar {
+  width: 100%;
+  height: 60px;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  padding: 0 20px;
+
+  background: #252526;
+
+  border-bottom: 1px solid #3f3f46;
+}
+
+.toolbar-title {
+  display: flex;
+
+  align-items: center;
+
+  gap: 12px;
+}
+
+.toolbar-title h1 {
+  margin: 0;
+
+  font-size: 20px;
+
+  font-weight: 600;
+}
+
+.toolbar-title span {
+  padding: 4px 8px;
+
+  border-radius: 4px;
+
+  background: #3f3f46;
+
+  color: #cccccc;
+
+  font-size: 12px;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Coordenadas
+|--------------------------------------------------------------------------
+*/
+
+.coordinates {
+  display: flex;
+
+  align-items: center;
+
+  gap: 20px;
+
+  font-family: Consolas, monospace;
+
+  font-size: 14px;
+
+  color: #cccccc;
+}
+
+.coordinates strong {
+  display: inline-block;
+
+  min-width: 90px;
+
+  color: #ffffff;
+
+  text-align: right;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Área principal
+|--------------------------------------------------------------------------
+*/
+
+.workspace {
+  position: relative;
+
+  width: 100%;
+
+  height: calc(100vh - 60px);
+
+  overflow: hidden;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Canvas
+|--------------------------------------------------------------------------
+*/
+
+.canvas-container {
+  width: 100%;
+
+  height: 100%;
+
+  overflow: hidden;
+
+  background: #111111;
+
+  cursor: crosshair;
+}
+
+#dxf-canvas {
+  display: block;
+
+  width: 100%;
+
+  height: 100%;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Fundo
+|--------------------------------------------------------------------------
+*/
+
+.drawing-background {
+  fill: #181818;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Entidades DXF
+|--------------------------------------------------------------------------
+*/
+
+.dxf-entity {
+  fill: none;
+
+  stroke: #ffffff;
+
+  stroke-width: 1;
+
+  vector-effect: non-scaling-stroke;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Entidade selecionada
+|--------------------------------------------------------------------------
+*/
+
+.dxf-entity.entity-selected {
+  stroke: #00ff88;
+
+  stroke-width: 3;
+
+  vector-effect: non-scaling-stroke;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Entidade selecionada por área
+|--------------------------------------------------------------------------
+*/
+
+.dxf-entity.area-selected {
+  stroke: #00ff88;
+
+  stroke-width: 3;
+
+  vector-effect: non-scaling-stroke;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Entidade selecionada individualmente e também pela área
+|--------------------------------------------------------------------------
+*/
+
+.dxf-entity.entity-selected.area-selected {
+  stroke: #00ff88;
+
+  stroke-width: 3;
+
+  vector-effect: non-scaling-stroke;
+}
+
+/*
+|--------------------------------------------------------------------------
+| LWPOLYLINE
+|--------------------------------------------------------------------------
+*/
+
+polyline.dxf-entity {
+  fill: none;
+
+  stroke: #ffffff;
+
+  stroke-width: 1;
+
+  vector-effect: non-scaling-stroke;
+}
+
+/*
+|--------------------------------------------------------------------------
+| CIRCLE
+|--------------------------------------------------------------------------
+*/
+
+circle.dxf-entity {
+  fill: none;
+
+  stroke: #ffffff;
+
+  stroke-width: 1;
+
+  vector-effect: non-scaling-stroke;
+}
+
+/*
+|--------------------------------------------------------------------------
+| ARC
+|--------------------------------------------------------------------------
+*/
+
+path.dxf-entity {
+  fill: none;
+
+  stroke: #ffffff;
+
+  stroke-width: 1;
+
+  vector-effect: non-scaling-stroke;
+}
+
+/*
+|--------------------------------------------------------------------------
+| TEXT / MTEXT
+|--------------------------------------------------------------------------
+*/
+
+.dxf-text {
+  fill: #ffffff;
+
+  stroke: none;
+
+  font-family: Arial, Helvetica, sans-serif;
+
+  pointer-events: auto;
+
+  user-select: none;
+}
+
+.dxf-text.entity-selected,
+.dxf-text.area-selected {
+  fill: #00ff88;
+
+  stroke: #00ff88;
+
+  stroke-width: 0.5;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Marcador central
+|--------------------------------------------------------------------------
+*/
+
+.debug-center {
+  fill: #ff0000;
+
+  stroke: #ffffff;
+
+  stroke-width: 2;
+
+  vector-effect: non-scaling-stroke;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Marcador de seleção por área
+|--------------------------------------------------------------------------
+*/
+
+.selection-rectangle {
+  fill: rgba(0, 255, 136, 0.08);
+
+  stroke: #00ff88;
+
+  stroke-width: 1.5;
+
+  stroke-dasharray: 6 4;
+
+  vector-effect: non-scaling-stroke;
+
+  pointer-events: none;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Loading
+|--------------------------------------------------------------------------
+*/
+
+.loading {
+  position: absolute;
+
+  z-index: 10;
+
+  top: 20px;
+
+  left: 20px;
+
+  padding: 10px 15px;
+
+  background: #252526;
+
+  border: 1px solid #3f3f46;
+
+  border-radius: 6px;
+
+  font-size: 14px;
+
+  color: #ffffff;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Erro
+|--------------------------------------------------------------------------
+*/
+
+.error {
+  position: absolute;
+
+  z-index: 20;
+
+  top: 20px;
+
+  left: 20px;
+
+  max-width: 600px;
+
+  padding: 15px;
+
+  background: #5a1d1d;
+
+  border: 1px solid #a33;
+
+  border-radius: 6px;
+
+  font-family: Consolas, monospace;
+
+  font-size: 13px;
+
+  line-height: 1.5;
+
+  color: #ffffff;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Pontos criados pelo usuário
+|--------------------------------------------------------------------------
+*/
+
+.user-point {
+  pointer-events: none;
+}
+
+.user-point circle {
+  cursor: pointer;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Painel de entidade
+|--------------------------------------------------------------------------
+*/
+
+.entity-panel {
+  position: absolute;
+
+  z-index: 30;
+
+  top: 15px;
+
+  right: 15px;
+
+  width: 300px;
+
+  max-height: calc(50% - 22px);
+
+  overflow-y: auto;
+
+  background: #252526;
+
+  border: 1px solid #3f3f46;
+
+  border-radius: 8px;
+
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+
+  color: #ffffff;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Cabeçalho do painel
+|--------------------------------------------------------------------------
+*/
+
+.entity-panel-header {
+  display: flex;
+
+  align-items: flex-start;
+
+  justify-content: space-between;
+
+  padding: 16px;
+
+  border-bottom: 1px solid #3f3f46;
+}
+
+.entity-panel-label {
+  display: block;
+
+  margin-bottom: 5px;
+
+  font-family: Consolas, monospace;
+
+  font-size: 10px;
+
+  letter-spacing: 0.8px;
+
+  color: #999999;
+}
+
+.entity-panel-header h2 {
+  margin: 0;
+
+  font-family: Consolas, monospace;
+
+  font-size: 18px;
+
+  font-weight: 600;
+
+  color: #00ff88;
+}
+
+.entity-panel-close {
+  width: 28px;
+
+  height: 28px;
+
+  padding: 0;
+
+  border: none;
+
+  border-radius: 4px;
+
+  background: transparent;
+
+  color: #aaaaaa;
+
+  font-size: 22px;
+
+  line-height: 28px;
+
+  cursor: pointer;
+}
+
+.entity-panel-close:hover {
+  background: #3f3f46;
+
+  color: #ffffff;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Conteúdo do painel
+|--------------------------------------------------------------------------
+*/
+
+.entity-panel-content {
+  padding: 6px 16px 16px;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Seções
+|--------------------------------------------------------------------------
+*/
+
+.entity-section {
+  padding: 12px 0;
+
+  border-bottom: 1px solid #353538;
+}
+
+.entity-section:last-child {
+  border-bottom: none;
+}
+
+.entity-section h3 {
+  margin: 0 0 9px;
+
+  font-size: 11px;
+
+  font-weight: 600;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.6px;
+
+  color: #888888;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Propriedades
+|--------------------------------------------------------------------------
+*/
+
+.property-row {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  gap: 15px;
+
+  min-height: 25px;
+
+  font-family: Consolas, monospace;
+
+  font-size: 12px;
+}
+
+.property-row span {
+  color: #aaaaaa;
+}
+
+.property-row strong {
+  max-width: 175px;
+
+  overflow: hidden;
+
+  color: #ffffff;
+
+  text-align: right;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Painel de seleção por área
+|--------------------------------------------------------------------------
+*/
+
+.selection-panel {
+  position: absolute;
+
+  z-index: 31;
+
+  top: 15px;
+
+  right: 330px;
+
+  width: 320px;
+
+  max-height: calc(100% - 30px);
+
+  display: flex;
+
+  flex-direction: column;
+
+  overflow: hidden;
+
+  background: #252526;
+
+  border: 1px solid #3f3f46;
+
+  border-radius: 8px;
+
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+
+  color: #ffffff;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Cabeçalho da seleção
+|--------------------------------------------------------------------------
+*/
+
+.selection-panel-header {
+  display: flex;
+
+  align-items: flex-start;
+
+  justify-content: space-between;
+
+  flex-shrink: 0;
+
+  padding: 16px;
+
+  border-bottom: 1px solid #3f3f46;
+}
+
+.selection-panel-label {
+  display: block;
+
+  margin-bottom: 5px;
+
+  font-family: Consolas, monospace;
+
+  font-size: 10px;
+
+  letter-spacing: 0.8px;
+
+  color: #999999;
+}
+
+.selection-panel-header h2 {
+  margin: 0;
+
+  font-family: Consolas, monospace;
+
+  font-size: 16px;
+
+  font-weight: 600;
+
+  color: #00ff88;
+}
+
+.selection-panel-close {
+  width: 28px;
+
+  height: 28px;
+
+  padding: 0;
+
+  border: none;
+
+  border-radius: 4px;
+
+  background: transparent;
+
+  color: #aaaaaa;
+
+  font-size: 22px;
+
+  line-height: 28px;
+
+  cursor: pointer;
+}
+
+.selection-panel-close:hover {
+  background: #3f3f46;
+
+  color: #ffffff;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Resumo da seleção
+|--------------------------------------------------------------------------
+*/
+
+.selection-panel-summary {
+  flex-shrink: 0;
+
+  padding: 12px 16px;
+
+  border-bottom: 1px solid #353538;
+}
+
+.selection-count {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  padding: 10px 12px;
+
+  background: #181818;
+
+  border: 1px solid #353538;
+
+  border-radius: 6px;
+
+  font-family: Consolas, monospace;
+
+  font-size: 12px;
+}
+
+.selection-count span {
+  color: #aaaaaa;
+}
+
+.selection-count strong {
+  color: #00ff88;
+
+  font-size: 16px;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Lista de entidades selecionadas
+|--------------------------------------------------------------------------
+*/
+
+.selection-list {
+  min-height: 0;
+
+  overflow-y: auto;
+
+  padding: 8px;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Item da lista
+|--------------------------------------------------------------------------
+*/
+
+.selection-item {
+  width: 100%;
+
+  display: block;
+
+  margin-bottom: 6px;
+
+  padding: 10px;
+
+  background: #1d1d1e;
+
+  border: 1px solid #353538;
+
+  border-radius: 6px;
+
+  color: #ffffff;
+
+  text-align: left;
+
+  cursor: pointer;
+
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease;
+}
+
+.selection-item:last-child {
+  margin-bottom: 0;
+}
+
+.selection-item:hover {
+  background: #2b2b2d;
+
+  border-color: #00ff88;
+
+  transform: translateX(-2px);
+}
+
+.selection-item.active {
+  background: #26352f;
+
+  border-color: #00ff88;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Conteúdo principal do item
+|--------------------------------------------------------------------------
+*/
+
+.selection-item-main {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  gap: 10px;
+}
+
+.selection-item-type {
+  font-family: Consolas, monospace;
+
+  font-size: 12px;
+
+  font-weight: 700;
+
+  color: #00ff88;
+}
+
+.selection-item-id {
+  font-family: Consolas, monospace;
+
+  font-size: 11px;
+
+  color: #aaaaaa;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Layer do item
+|--------------------------------------------------------------------------
+*/
+
+.selection-item-layer {
+  margin-top: 5px;
+
+  overflow: hidden;
+
+  font-family: Consolas, monospace;
+
+  font-size: 10px;
+
+  color: #888888;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Mensagem de lista vazia
+|--------------------------------------------------------------------------
+*/
+
+.selection-empty {
+  padding: 25px 15px;
+
+  font-family: Consolas, monospace;
+
+  font-size: 12px;
+
+  line-height: 1.5;
+
+  color: #777777;
+
+  text-align: center;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Estado oculto
+|--------------------------------------------------------------------------
+*/
+
+.hidden {
+  display: none;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Cursor durante pan
+|--------------------------------------------------------------------------
+*/
+
+.canvas-container.panning {
+  cursor: grabbing;
+}
+
+.canvas-container.panning #dxf-canvas {
+  cursor: grabbing;
+}
