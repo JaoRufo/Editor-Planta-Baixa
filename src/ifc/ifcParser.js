@@ -40,10 +40,16 @@ export function parseIfcText(text) {
     }
   }
 
+  const productsWithGeometry = products.map((product) =>
+    enrichProductGeometry(product, entitiesById),
+  );
+  const modelBounds = calculateModelBounds(productsWithGeometry);
+
   return {
     schema: extractSchema(text),
     units: extractUnits(text),
-    products,
+    products: productsWithGeometry,
+    modelBounds,
     countsByType: [...countsByType.entries()]
       .map(([type, count]) => ({ type, count }))
       .sort((a, b) => a.type.localeCompare(b.type)),
@@ -59,6 +65,189 @@ function createProduct(entity) {
     name: cleanIfcValue(entity.args[2]) || "(sem nome)",
     description: cleanIfcValue(entity.args[3]),
     objectType: cleanIfcValue(entity.args[4]),
+    placementRef: getRefId(entity.args[5]),
+    representationRef: getRefId(entity.args[6]),
+  };
+}
+
+function enrichProductGeometry(product, entitiesById) {
+  const placement = resolvePlacement(product.placementRef, entitiesById);
+  const localPoints = resolveProductPoints(product.representationRef, entitiesById);
+  const points = localPoints.map((point) => ({
+    x: point.x + placement.x,
+    y: point.y + placement.y,
+  }));
+
+  return {
+    ...product,
+    placement,
+    bounds: calculateBounds(points),
+  };
+}
+
+function resolvePlacement(placementRef, entitiesById, seen = new Set()) {
+  if (!placementRef || seen.has(placementRef)) {
+    return { x: 0, y: 0 };
+  }
+
+  seen.add(placementRef);
+
+  const placement = entitiesById.get(placementRef);
+
+  if (!placement || placement.type !== "IFCLOCALPLACEMENT") {
+    return { x: 0, y: 0 };
+  }
+
+  const parent = resolvePlacement(getRefId(placement.args[0]), entitiesById, seen);
+  const axisPlacement = entitiesById.get(getRefId(placement.args[1]));
+  const location = axisPlacement
+    ? readPoint(getRefId(axisPlacement.args[0]), entitiesById)
+    : null;
+
+  return {
+    x: parent.x + (location?.x || 0),
+    y: parent.y + (location?.y || 0),
+  };
+}
+
+function resolveProductPoints(representationRef, entitiesById) {
+  const definition = entitiesById.get(representationRef);
+
+  if (!definition || definition.type !== "IFCPRODUCTDEFINITIONSHAPE") {
+    return [];
+  }
+
+  const representations = getRefList(definition.args[2])
+    .map((shapeRef) => entitiesById.get(shapeRef))
+    .filter((shape) => shape?.type === "IFCSHAPEREPRESENTATION");
+  const footprintRepresentations = representations.filter(
+    (shape) => cleanIfcValue(shape.args[1]).toUpperCase() === "FOOTPRINT",
+  );
+  const points = [];
+
+  for (const shape of footprintRepresentations.length
+    ? footprintRepresentations
+    : representations) {
+    const shapePoints = resolveShapePoints(shape, entitiesById);
+
+    if (shapePoints.length) {
+      points.push(...shapePoints);
+    }
+  }
+
+  return points;
+}
+
+function resolveShapePoints(shape, entitiesById) {
+  const itemRefs = getRefList(shape.args[3]);
+  const points = [];
+
+  for (const itemRef of itemRefs) {
+    points.push(...resolveGeometryItemPoints(itemRef, entitiesById, new Set()));
+  }
+
+  return points;
+}
+
+function resolveGeometryItemPoints(itemRef, entitiesById, seen) {
+  if (!itemRef || seen.has(itemRef)) {
+    return [];
+  }
+
+  seen.add(itemRef);
+
+  const item = entitiesById.get(itemRef);
+
+  if (!item) {
+    return [];
+  }
+
+  if (item.type === "IFCCARTESIANPOINT") {
+    const point = parsePointArgument(item.args[0]);
+    return point ? [point] : [];
+  }
+
+  if (item.type === "IFCPOLYLINE") {
+    return getRefList(item.args[0])
+      .map((pointRef) => readPoint(pointRef, entitiesById))
+      .filter(Boolean);
+  }
+
+  const nestedRefs = item.args.flatMap((arg) => getRefList(arg));
+
+  return nestedRefs.flatMap((nestedRef) =>
+    resolveGeometryItemPoints(nestedRef, entitiesById, seen),
+  );
+}
+
+function readPoint(pointRef, entitiesById) {
+  const point = entitiesById.get(pointRef);
+
+  if (!point || point.type !== "IFCCARTESIANPOINT") {
+    return null;
+  }
+
+  return parsePointArgument(point.args[0]);
+}
+
+function parsePointArgument(value) {
+  const numbers = String(value)
+    .replace(/[()]/g, "")
+    .split(",")
+    .map((number) => Number(number.trim()))
+    .filter((number) => Number.isFinite(number));
+
+  if (numbers.length < 2) {
+    return null;
+  }
+
+  return {
+    x: numbers[0],
+    y: numbers[1],
+  };
+}
+
+function calculateBounds(points) {
+  if (!points.length) {
+    return null;
+  }
+
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+function calculateModelBounds(products) {
+  const bounds = products.map((product) => product.bounds).filter(Boolean);
+
+  if (!bounds.length) {
+    return null;
+  }
+
+  const minX = Math.min(...bounds.map((item) => item.minX));
+  const minY = Math.min(...bounds.map((item) => item.minY));
+  const maxX = Math.max(...bounds.map((item) => item.maxX));
+  const maxY = Math.max(...bounds.map((item) => item.maxY));
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
   };
 }
 
@@ -129,6 +318,18 @@ function splitIfcArguments(rawArgs) {
   }
 
   return args;
+}
+
+function getRefId(value) {
+  const match = String(value || "").match(/#(\d+)/);
+
+  return match ? Number(match[1]) : null;
+}
+
+function getRefList(value) {
+  return [...String(value || "").matchAll(/#(\d+)/g)].map((match) =>
+    Number(match[1]),
+  );
 }
 
 function cleanIfcValue(value) {

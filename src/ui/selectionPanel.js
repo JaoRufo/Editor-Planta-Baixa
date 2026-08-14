@@ -9,6 +9,7 @@ export function renderSelectionPanel({
   selection,
   selectedAnnotation,
   ifcModel,
+  pageBounds,
   onSaveAnnotation,
   onDeleteAnnotation,
 }) {
@@ -18,7 +19,7 @@ export function renderSelectionPanel({
     return;
   }
 
-  const ifcResult = findIfcEntitiesForSelection(ifcModel, selection);
+  const ifcResult = findIfcEntitiesForSelection(ifcModel, selection, pageBounds);
   const ifcSummary = ifcModel ? summarizeIfcProducts(ifcModel.products).slice(0, 8) : [];
 
   panelElement.hidden = false;
@@ -44,6 +45,7 @@ export function renderSelectionPanel({
             : "Carregando IFC..."
         }
       </div>
+      ${renderIfcEntities(ifcResult.entities)}
       ${renderIfcSummary(ifcSummary)}
     </section>
 
@@ -69,6 +71,28 @@ export function renderSelectionPanel({
   document
     .getElementById("deleteAnnotationButton")
     ?.addEventListener("click", onDeleteAnnotation);
+}
+
+function renderIfcEntities(entities) {
+  if (!entities.length) {
+    return "";
+  }
+
+  return `
+    <ul class="ifc-entity-list">
+      ${entities
+        .slice(0, 20)
+        .map(
+          (entity) => `
+            <li>
+              <strong>${escapeHtml(entity.name)}</strong>
+              <span>${escapeHtml(entity.type)} #${entity.stepId}</span>
+            </li>
+          `,
+        )
+        .join("")}
+    </ul>
+  `;
 }
 
 function renderIfcSummary(summary) {

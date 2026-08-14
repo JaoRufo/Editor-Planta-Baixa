@@ -530,6 +530,11 @@ function updateSelectionPanel() {
     selection,
     selectedAnnotation,
     ifcModel: projectState.ifcModel,
+    pageBounds: {
+      page: viewerState.currentPage,
+      width: viewerState.pageWidth,
+      height: viewerState.pageHeight,
+    },
     onSaveAnnotation: saveAnnotationFromPanel,
     onDeleteAnnotation: deleteSelectedAnnotation,
   });
@@ -616,9 +621,9 @@ function startAnnotationDrag(event) {
   };
 
   event.currentTarget.setPointerCapture(event.pointerId);
+  event.currentTarget.classList.add("is-selected");
   updateSelectionOverlay();
   updateSelectionPanel();
-  renderAnnotations();
 }
 
 function moveAnnotation(event) {
@@ -653,7 +658,7 @@ function moveAnnotation(event) {
   };
 
   updateSelectionOverlay();
-  renderAnnotations();
+  updateAnnotationElementPosition(annotation);
 }
 
 function endAnnotationDrag(event) {
@@ -663,7 +668,34 @@ function endAnnotationDrag(event) {
 
   annotationDrag = null;
   updateSelectionPanel();
+  renderAnnotations();
   setStatus("Anotacao movida");
+}
+
+function updateAnnotationElementPosition(annotation) {
+  const element = ui.annotationLayer.querySelector(
+    `[data-annotation-id="${annotation.id}"]`,
+  );
+
+  if (!element) {
+    return;
+  }
+
+  const topLeft = pdfToViewerCoordinates(
+    viewerState,
+    annotation.x,
+    annotation.y + annotation.height,
+  );
+  const bottomRight = pdfToViewerCoordinates(
+    viewerState,
+    annotation.x + annotation.width,
+    annotation.y,
+  );
+
+  element.style.left = `${topLeft.x}px`;
+  element.style.top = `${topLeft.y}px`;
+  element.style.width = `${bottomRight.x - topLeft.x}px`;
+  element.style.minHeight = `${Math.max(bottomRight.y - topLeft.y, 30)}px`;
 }
 
 function startPan(event) {
@@ -889,6 +921,9 @@ async function loadIfc() {
       schema: projectState.ifcModel.schema,
       entidades: projectState.ifcModel.products.length,
       unidadeComprimento: projectState.ifcModel.units.length,
+      entidadesComGeometria: projectState.ifcModel.products.filter(
+        (product) => product.bounds,
+      ).length,
     });
 
     updateSelectionPanel();
