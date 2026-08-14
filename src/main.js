@@ -30,6 +30,15 @@ import {
   isPdfPointInsideSelection,
   normalizePdfSelection,
 } from "./selection/selectionGeometry.js";
+import {
+  clearLineHighlights as clearLineHighlightsLayer,
+  detectLineHighlightsForSelection as detectLineHighlightsFromCanvas,
+  renderLineHighlights as renderLineHighlightLayer,
+} from "./selection/lineHighlighter.js";
+import {
+  extractPdfVectorItems,
+  findPdfVectorItemsForSelection,
+} from "./selection/pdfVectorExtractor.js";
 import { renderSelectionPanel } from "./ui/selectionPanel.js";
 
 const PDF_FILE = "/assets/pdf/layout/planta-layout.pdf";
@@ -48,6 +57,7 @@ const ui = getRequiredElements({
   viewer: "#viewer",
   canvasContainer: "#canvasContainer",
   canvas: "#pdfCanvas",
+  lineHighlightCanvas: "#lineHighlightCanvas",
   annotationLayer: "#annotationLayer",
   currentPage: "#currentPage",
   totalPages: "#totalPages",
@@ -70,6 +80,7 @@ const ui = getRequiredElements({
 });
 
 const canvasContext = ui.canvas.getContext("2d", { alpha: false });
+const lineHighlightContext = ui.lineHighlightCanvas.getContext("2d");
 
 const viewerState = {
   pdfDocument: null,
@@ -96,10 +107,13 @@ const viewerState = {
   renderInProgress: false,
   renderPending: false,
   lastWheelLogTime: 0,
+  vectorItemsByPage: new Map(),
 };
 
 const projectState = {
   activeSelection: null,
+  lineHighlights: [],
+  selectedPdfItems: [],
   annotations: [],
   selectedAnnotationId: null,
   ifcModel: null,
@@ -133,6 +147,7 @@ function getViewerCenter() {
 
 function applyCanvasTransform() {
   ui.canvasContainer.style.transform = `translate3d(${viewerState.panX}px, ${viewerState.panY}px, 0)`;
+  renderLineHighlights();
   updateSelectionOverlay();
   renderAnnotations();
 }
@@ -194,6 +209,15 @@ async function renderCurrentPage() {
 
     if (renderVersion !== viewerState.renderVersion) {
       logWarning("Renderizacao ignorada por existir uma versao mais recente.");
+      return;
+    }
+
+    await ensurePdfVectorItemsForPage(page, viewerState.currentPage);
+
+    if (renderVersion !== viewerState.renderVersion) {
+      logWarning(
+        "Renderizacao ignorada apos extracao vetorial por existir uma versao mais recente.",
+      );
       return;
     }
 
@@ -417,8 +441,11 @@ function clearSelection(reason = "Selecao removida.") {
   viewerState.isSelecting = false;
   viewerState.selectionStartPdf = null;
   projectState.activeSelection = null;
+  projectState.lineHighlights = [];
+  projectState.selectedPdfItems = [];
   projectState.selectedAnnotationId = null;
   ui.selectionOverlay.hidden = true;
+  clearLineHighlights();
   updateSelectionPanel();
   renderAnnotations();
   setStatus(reason);
@@ -450,6 +477,8 @@ function startSelection(event) {
 
   viewerState.isSelecting = true;
   viewerState.selectionStartPdf = clampPdfPoint(viewerState, pdfPoint);
+  projectState.lineHighlights = [];
+  projectState.selectedPdfItems = [];
   projectState.activeSelection = {
     page: viewerState.currentPage,
     x: viewerState.selectionStartPdf.x,
@@ -462,6 +491,7 @@ function startSelection(event) {
   ui.viewer.classList.add("is-selecting");
   ui.viewer.setPointerCapture(event.pointerId);
   updateSelectionOverlay();
+  clearLineHighlights();
   updateSelectionPanel();
   log("Selecao iniciada.", { page: viewerState.currentPage });
 }
@@ -484,6 +514,7 @@ function moveSelection(event) {
   );
 
   updateSelectionOverlay();
+  clearLineHighlights();
 }
 
 function endSelection(event) {
@@ -507,14 +538,81 @@ function endSelection(event) {
   }
 
   updateSelectionOverlay();
+  projectState.selectedPdfItems = findPdfVectorItemsForSelection(
+    getPdfVectorItemsForCurrentPage(),
+    selection,
+  );
+  projectState.lineHighlights = projectState.selectedPdfItems.length
+    ? projectState.selectedPdfItems
+    : detectLineHighlightsForSelection(selection);
+  renderLineHighlights();
   updateSelectionPanel();
-  setStatus("Area selecionada");
+  setStatus(
+    projectState.lineHighlights.length
+      ? "Area selecionada - linhas destacadas"
+      : "Area selecionada",
+  );
   log("Selecao finalizada.", {
     page: selection.page,
     x: Math.round(selection.x),
     y: Math.round(selection.y),
     width: Math.round(selection.width),
     height: Math.round(selection.height),
+    itensPdfIdentificados: projectState.selectedPdfItems.length,
+    destaques: projectState.lineHighlights.length,
+  });
+}
+
+async function ensurePdfVectorItemsForPage(page, pageNumber) {
+  if (viewerState.vectorItemsByPage.has(pageNumber)) {
+    return;
+  }
+
+  try {
+    const vectorItems = await extractPdfVectorItems(page, pageNumber, pdfjsLib);
+
+    viewerState.vectorItemsByPage.set(pageNumber, vectorItems);
+
+    log("Itens vetoriais do PDF extraidos.", {
+      page: pageNumber,
+      itens: vectorItems.length,
+    });
+  } catch (error) {
+    viewerState.vectorItemsByPage.set(pageNumber, []);
+    logWarning("Nao foi possivel extrair itens vetoriais do PDF.", error);
+  }
+}
+
+function getPdfVectorItemsForCurrentPage() {
+  return viewerState.vectorItemsByPage.get(viewerState.currentPage) || [];
+}
+
+function detectLineHighlightsForSelection(selection) {
+  return detectLineHighlightsFromCanvas({
+    selection,
+    pdfCanvas: ui.canvas,
+    pdfCanvasContext: canvasContext,
+    viewerState,
+    onReadError: (error) => {
+      logWarning("Nao foi possivel ler pixels da selecao para destacar linhas.", error);
+    },
+  });
+}
+
+function renderLineHighlights() {
+  renderLineHighlightLayer({
+    canvas: ui.lineHighlightCanvas,
+    context: lineHighlightContext,
+    highlights: projectState.lineHighlights,
+    viewerElement: ui.viewer,
+    viewerState,
+  });
+}
+
+function clearLineHighlights() {
+  clearLineHighlightsLayer({
+    context: lineHighlightContext,
+    viewerElement: ui.viewer,
   });
 }
 
@@ -530,6 +628,7 @@ function updateSelectionPanel() {
     selection,
     selectedAnnotation,
     ifcModel: projectState.ifcModel,
+    pdfItems: projectState.selectedPdfItems,
     pageBounds: {
       page: viewerState.currentPage,
       width: viewerState.pageWidth,
@@ -825,6 +924,8 @@ function saveCurrentProject() {
     panX: viewerState.panX,
     panY: viewerState.panY,
     activeSelection: projectState.activeSelection,
+    lineHighlights: projectState.lineHighlights,
+    selectedPdfItems: projectState.selectedPdfItems,
     annotations: projectState.annotations,
     selectedAnnotationId: projectState.selectedAnnotationId,
   });
@@ -850,6 +951,8 @@ async function loadSavedProject() {
   viewerState.panX = savedState.panX || 0;
   viewerState.panY = savedState.panY || 0;
   projectState.activeSelection = savedState.activeSelection || null;
+  projectState.lineHighlights = savedState.lineHighlights || [];
+  projectState.selectedPdfItems = savedState.selectedPdfItems || [];
   projectState.annotations = savedState.annotations || [];
   projectState.selectedAnnotationId = savedState.selectedAnnotationId || null;
 
@@ -865,6 +968,8 @@ async function loadSavedProject() {
 function clearLocalProject() {
   clearProjectState();
   projectState.annotations = [];
+  projectState.lineHighlights = [];
+  projectState.selectedPdfItems = [];
   clearSelection("Projeto local limpo.");
 }
 

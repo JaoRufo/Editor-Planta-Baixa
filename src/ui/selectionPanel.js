@@ -9,6 +9,7 @@ export function renderSelectionPanel({
   selection,
   selectedAnnotation,
   ifcModel,
+  pdfItems = [],
   pageBounds,
   onSaveAnnotation,
   onDeleteAnnotation,
@@ -50,6 +51,12 @@ export function renderSelectionPanel({
     </section>
 
     <section class="panel-section">
+      <h3>Itens PDF</h3>
+      <p>${pdfItems.length} item(ns) vetorial(is) identificado(s) na area.</p>
+      ${renderPdfItems(pdfItems)}
+    </section>
+
+    <section class="panel-section">
       <h3>Anotacao</h3>
       <textarea id="annotationTextInput" class="annotation-text-input" rows="4" placeholder="Texto da anotacao">${escapeHtml(
         selectedAnnotation?.text || "",
@@ -71,6 +78,33 @@ export function renderSelectionPanel({
   document
     .getElementById("deleteAnnotationButton")
     ?.addEventListener("click", onDeleteAnnotation);
+}
+
+function renderPdfItems(items) {
+  if (!items.length) {
+    return "";
+  }
+
+  return `
+    <ul class="pdf-item-list">
+      ${items
+        .slice(0, 40)
+        .map(
+          (item, index) => `
+            <li>
+              <strong>${escapeHtml(item.label)} ${index + 1}</strong>
+              <span>
+                ${escapeHtml(item.type)}
+                · x ${Math.round(item.bounds.x)}
+                · y ${Math.round(item.bounds.y)}
+                · ${Math.round(item.bounds.width)} x ${Math.round(item.bounds.height)}
+              </span>
+            </li>
+          `,
+        )
+        .join("")}
+    </ul>
+  `;
 }
 
 function renderIfcEntities(entities) {
