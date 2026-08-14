@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <meta
+      name="description"
+      content="Protótipo de editor de plantas arquitetônicas"
+    />
+
+    <title>Editor de Planta Baixa</title>
+  </head>
+
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="app-brand">
+          <div class="app-logo">PB</div>
+
+          <div class="app-title">
+            <h1>Editor de Planta Baixa</h1>
+
+            <span> Visualizador PDF </span>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <button
+              id="previousPageButton"
+              class="toolbar-button"
+              type="button"
+              title="Página anterior"
+            >
+              <span>‹</span>
+            </button>
+
+            <div class="page-indicator">
+              <span id="currentPage"> 1 </span>
+
+              <span class="page-divider"> / </span>
+
+              <span id="totalPages"> 1 </span>
+            </div>
+
+            <button
+              id="nextPageButton"
+              class="toolbar-button"
+              type="button"
+              title="Próxima página"
+            >
+              <span>›</span>
+            </button>
+          </div>
+
+          <div class="toolbar-separator"></div>
+
+          <div class="toolbar-group">
+            <button
+              id="panModeButton"
+              class="toolbar-button mode-button is-active"
+              type="button"
+              title="Mover planta"
+              aria-pressed="true"
+            >
+              Mover
+            </button>
+
+            <button
+              id="selectionModeButton"
+              class="toolbar-button mode-button"
+              type="button"
+              title="Selecionar área"
+              aria-pressed="false"
+            >
+              Selecionar
+            </button>
+          </div>
+
+          <div class="toolbar-separator"></div>
+
+          <div class="toolbar-group">
+            <button
+              id="zoomOutButton"
+              class="toolbar-button"
+              type="button"
+              title="Diminuir zoom"
+            >
+              −
+            </button>
+
+            <div id="zoomValue" class="zoom-value">100%</div>
+
+            <button
+              id="zoomInButton"
+              class="toolbar-button"
+              type="button"
+              title="Aumentar zoom"
+            >
+              +
+            </button>
+          </div>
+
+          <button
+            id="resetViewButton"
+            class="toolbar-button reset-button"
+            type="button"
+            title="Centralizar planta"
+          >
+            <span class="reset-icon"> ⟳ </span>
+
+            <span> Centralizar </span>
+          </button>
+        </div>
+      </header>
+
+      <main class="viewer-area">
+        <div id="loading" class="viewer-message">
+          <div class="loading-spinner"></div>
+
+          <p>Carregando PDF...</p>
+        </div>
+
+        <div id="error" class="viewer-message viewer-error" hidden>
+          <div class="error-icon">!</div>
+
+          <h2>Não foi possível carregar o PDF</h2>
+
+          <p id="errorMessage"></p>
+        </div>
+
+        <div id="viewer" class="pdf-viewer" hidden>
+          <div id="canvasContainer" class="canvas-container">
+            <canvas id="pdfCanvas"></canvas>
+          </div>
+
+          <div id="selectionOverlay" class="selection-overlay" hidden></div>
+        </div>
+
+        <aside id="selectionPanel" class="selection-panel" hidden>
+          <header class="selection-panel-header">
+            <h2>Seleção</h2>
+
+            <button
+              id="clearSelectionButton"
+              class="selection-clear-button"
+              type="button"
+              title="Remover seleção"
+            >
+              ×
+            </button>
+          </header>
+
+          <div id="selectionPanelContent" class="selection-panel-content">
+            Nenhuma área selecionada.
+          </div>
+        </aside>
+      </main>
+
+      <footer class="app-footer">
+        <div class="status-area">
+          <span class="status-dot"></span>
+
+          <span id="statusMessage"> Preparando visualizador... </span>
+        </div>
+
+        <div class="help-area">
+          <span> Arrastar </span>
+
+          <span class="help-divider"> · </span>
+
+          <span> Scroll para mover </span>
+
+          <span class="help-divider"> · </span>
+
+          <span> Ctrl + Scroll para zoom </span>
+
+          <span class="help-divider"> · </span>
+
+          <span> Duplo clique para ampliar </span>
+
+          <span class="help-divider"> Â· </span>
+
+          <span> Modo Selecionar para criar área </span>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
