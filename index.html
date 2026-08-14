@@ -59,6 +59,37 @@
 
           <div class="toolbar-group">
             <button
+              id="saveProjectButton"
+              class="toolbar-button mode-button"
+              type="button"
+              title="Salvar projeto local"
+            >
+              Salvar
+            </button>
+
+            <button
+              id="loadProjectButton"
+              class="toolbar-button mode-button"
+              type="button"
+              title="Carregar projeto local"
+            >
+              Abrir
+            </button>
+
+            <button
+              id="clearProjectButton"
+              class="toolbar-button mode-button"
+              type="button"
+              title="Limpar projeto local"
+            >
+              Limpar
+            </button>
+          </div>
+
+          <div class="toolbar-separator"></div>
+
+          <div class="toolbar-group">
+            <button
               id="panModeButton"
               class="toolbar-button mode-button is-active"
               type="button"
@@ -137,6 +168,8 @@
           </div>
 
           <div id="selectionOverlay" class="selection-overlay" hidden></div>
+
+          <div id="annotationLayer" class="annotation-layer"></div>
         </div>
 
         <aside id="selectionPanel" class="selection-panel" hidden>
