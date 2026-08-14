@@ -46,6 +46,7 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.1;
 const INITIAL_ZOOM = 1;
+const ZOOM_RENDER_DELAY = 220;
 const RENDER_SCHEDULER = "requestAnimationFrame";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -91,6 +92,7 @@ const viewerState = {
   pageHeight: 0,
   renderedWidth: 0,
   renderedHeight: 0,
+  renderedZoom: INITIAL_ZOOM,
   panX: 0,
   panY: 0,
   isPanning: false,
@@ -103,6 +105,7 @@ const viewerState = {
   selectionStartPdf: null,
   renderTask: null,
   renderRequestId: null,
+  zoomRenderTimeoutId: null,
   renderVersion: 0,
   renderInProgress: false,
   renderPending: false,
@@ -146,7 +149,9 @@ function getViewerCenter() {
 }
 
 function applyCanvasTransform() {
-  ui.canvasContainer.style.transform = `translate3d(${viewerState.panX}px, ${viewerState.panY}px, 0)`;
+  const visualScale = viewerState.zoom / viewerState.renderedZoom;
+
+  ui.canvasContainer.style.transform = `matrix(${visualScale}, 0, 0, ${visualScale}, ${viewerState.panX}, ${viewerState.panY})`;
   renderLineHighlights();
   updateSelectionOverlay();
   renderAnnotations();
@@ -154,9 +159,11 @@ function applyCanvasTransform() {
 
 function centerPage() {
   const center = getViewerCenter();
+  const pageWidth = viewerState.pageWidth || viewerState.renderedWidth;
+  const pageHeight = viewerState.pageHeight || viewerState.renderedHeight;
 
-  viewerState.panX = center.x - viewerState.renderedWidth / 2;
-  viewerState.panY = center.y - viewerState.renderedHeight / 2;
+  viewerState.panX = center.x - (pageWidth * viewerState.zoom) / 2;
+  viewerState.panY = center.y - (pageHeight * viewerState.zoom) / 2;
 
   applyCanvasTransform();
 
@@ -212,15 +219,6 @@ async function renderCurrentPage() {
       return;
     }
 
-    await ensurePdfVectorItemsForPage(page, viewerState.currentPage);
-
-    if (renderVersion !== viewerState.renderVersion) {
-      logWarning(
-        "Renderizacao ignorada apos extracao vetorial por existir uma versao mais recente.",
-      );
-      return;
-    }
-
     const viewport = page.getViewport({ scale: viewerState.zoom });
     const outputScale = window.devicePixelRatio || 1;
 
@@ -228,6 +226,7 @@ async function renderCurrentPage() {
     viewerState.pageHeight = page.view[3] - page.view[1];
     viewerState.renderedWidth = viewport.width;
     viewerState.renderedHeight = viewport.height;
+    viewerState.renderedZoom = viewerState.zoom;
 
     ui.canvas.width = Math.ceil(viewport.width * outputScale);
     ui.canvas.height = Math.ceil(viewport.height * outputScale);
@@ -254,6 +253,7 @@ async function renderCurrentPage() {
     applyCanvasTransform();
 
     setStatus(`Pagina ${viewerState.currentPage} carregada`);
+    queuePdfVectorExtraction(page, viewerState.currentPage, renderVersion);
 
     log(`Pagina ${viewerState.currentPage} renderizada com sucesso.`, {
       pageWidth: Math.round(viewerState.pageWidth),
@@ -313,13 +313,52 @@ function scheduleRender(reason = "Atualizacao visual.") {
 
 function cancelScheduledRender() {
   if (viewerState.renderRequestId === null) {
+    if (viewerState.zoomRenderTimeoutId !== null) {
+      clearTimeout(viewerState.zoomRenderTimeoutId);
+      viewerState.zoomRenderTimeoutId = null;
+      viewerState.renderPending = false;
+      log("Renderizacao de zoom agendada cancelada.");
+    }
+
     return;
   }
 
   cancelAnimationFrame(viewerState.renderRequestId);
   viewerState.renderRequestId = null;
   viewerState.renderPending = false;
+
+  if (viewerState.zoomRenderTimeoutId !== null) {
+    clearTimeout(viewerState.zoomRenderTimeoutId);
+    viewerState.zoomRenderTimeoutId = null;
+  }
+
   log("Renderizacao agendada cancelada.");
+}
+
+function scheduleZoomRender(reason = "Atualizacao de zoom.") {
+  viewerState.renderPending = true;
+
+  if (viewerState.zoomRenderTimeoutId !== null) {
+    clearTimeout(viewerState.zoomRenderTimeoutId);
+  }
+
+  viewerState.zoomRenderTimeoutId = window.setTimeout(async () => {
+    viewerState.zoomRenderTimeoutId = null;
+
+    if (!viewerState.renderPending) {
+      return;
+    }
+
+    viewerState.renderPending = false;
+
+    log(`Executando renderizacao de zoom: ${reason}`);
+
+    try {
+      await renderCurrentPage();
+    } catch (error) {
+      logError("Falha na renderizacao de zoom.", error);
+    }
+  }, ZOOM_RENDER_DELAY);
 }
 
 function setZoom(
@@ -348,7 +387,7 @@ function setZoom(
     atual: `${Math.round(nextZoom * 100)}%`,
   });
 
-  scheduleRender("Alteracao de zoom.");
+  scheduleZoomRender("Alteracao de zoom.");
 }
 
 function zoomIn(viewerX, viewerY) {
@@ -581,6 +620,39 @@ async function ensurePdfVectorItemsForPage(page, pageNumber) {
     viewerState.vectorItemsByPage.set(pageNumber, []);
     logWarning("Nao foi possivel extrair itens vetoriais do PDF.", error);
   }
+}
+
+function queuePdfVectorExtraction(page, pageNumber, renderVersion) {
+  if (viewerState.vectorItemsByPage.has(pageNumber)) {
+    return;
+  }
+
+  window.setTimeout(async () => {
+    if (renderVersion !== viewerState.renderVersion) {
+      return;
+    }
+
+    await ensurePdfVectorItemsForPage(page, pageNumber);
+
+    if (
+      renderVersion !== viewerState.renderVersion ||
+      pageNumber !== viewerState.currentPage ||
+      !projectState.activeSelection
+    ) {
+      return;
+    }
+
+    projectState.selectedPdfItems = findPdfVectorItemsForSelection(
+      getPdfVectorItemsForCurrentPage(),
+      projectState.activeSelection,
+    );
+
+    if (projectState.selectedPdfItems.length) {
+      projectState.lineHighlights = projectState.selectedPdfItems;
+      renderLineHighlights();
+      updateSelectionPanel();
+    }
+  }, 0);
 }
 
 function getPdfVectorItemsForCurrentPage() {

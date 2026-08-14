@@ -62,16 +62,18 @@ export function detectLineHighlightsForSelection({
     }
   }
 
-  return [...cells.values()].slice(0, 6000).map(({ cellX, cellY }) =>
-    sourceCellToPdfRect(
-      selection.page,
-      sourceRect.x + cellX * cellSize,
-      sourceRect.y + cellY * cellSize,
-      cellSize,
-      outputScale,
-      viewerState,
-    ),
-  );
+  return [...cells.values()]
+    .slice(0, 6000)
+    .map(({ cellX, cellY }) =>
+      sourceCellToPdfRect(
+        selection.page,
+        sourceRect.x + cellX * cellSize,
+        sourceRect.y + cellY * cellSize,
+        cellSize,
+        outputScale,
+        viewerState,
+      ),
+    );
 }
 
 export function renderLineHighlights({
@@ -124,7 +126,12 @@ export function renderLineHighlights({
 }
 
 export function clearLineHighlights({ context, viewerElement }) {
-  context.clearRect(0, 0, viewerElement.clientWidth, viewerElement.clientHeight);
+  context.clearRect(
+    0,
+    0,
+    viewerElement.clientWidth,
+    viewerElement.clientHeight,
+  );
 }
 
 function getCanvasSourceRectFromPdfSelection(
@@ -133,14 +140,19 @@ function getCanvasSourceRectFromPdfSelection(
   pdfCanvas,
   viewerState,
 ) {
-  const sourceX = Math.floor(selection.x * viewerState.zoom * outputScale);
+  const renderedZoom = viewerState.renderedZoom || viewerState.zoom;
+  const sourceX = Math.floor(selection.x * renderedZoom * outputScale);
   const sourceY = Math.floor(
     (viewerState.pageHeight - selection.y - selection.height) *
-      viewerState.zoom *
+      renderedZoom *
       outputScale,
   );
-  const sourceWidth = Math.ceil(selection.width * viewerState.zoom * outputScale);
-  const sourceHeight = Math.ceil(selection.height * viewerState.zoom * outputScale);
+  const sourceWidth = Math.ceil(
+    selection.width * renderedZoom * outputScale,
+  );
+  const sourceHeight = Math.ceil(
+    selection.height * renderedZoom * outputScale,
+  );
   const x = clamp(sourceX, 0, pdfCanvas.width);
   const y = clamp(sourceY, 0, pdfCanvas.height);
 
@@ -160,9 +172,11 @@ function sourceCellToPdfRect(
   outputScale,
   viewerState,
 ) {
-  const pdfX = sourceX / outputScale / viewerState.zoom;
-  const pdfTopY = viewerState.pageHeight - sourceY / outputScale / viewerState.zoom;
-  const pdfSize = sourceSize / outputScale / viewerState.zoom;
+  const renderedZoom = viewerState.renderedZoom || viewerState.zoom;
+  const pdfX = sourceX / outputScale / renderedZoom;
+  const pdfTopY =
+    viewerState.pageHeight - sourceY / outputScale / renderedZoom;
+  const pdfSize = sourceSize / outputScale / renderedZoom;
 
   return {
     page,
@@ -186,8 +200,14 @@ function isDarkLinePixel(red, green, blue, alpha) {
 
 function resizeHighlightCanvas(canvas, context, viewerElement) {
   const outputScale = window.devicePixelRatio || 1;
-  const width = Math.max(1, Math.floor(viewerElement.clientWidth * outputScale));
-  const height = Math.max(1, Math.floor(viewerElement.clientHeight * outputScale));
+  const width = Math.max(
+    1,
+    Math.floor(viewerElement.clientWidth * outputScale),
+  );
+  const height = Math.max(
+    1,
+    Math.floor(viewerElement.clientHeight * outputScale),
+  );
 
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
