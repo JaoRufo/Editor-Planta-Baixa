@@ -1,7 +1,7 @@
 {
-  "name": "editor-dxf",
+  "name": "editor-planta-baixa",
   "version": "1.0.0",
-  "description": "Protótipo de editor de plantas arquitetônicas em DXF",
+  "description": "Protótipo de editor de plantas arquitetônicas",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "dxf-parser": "^1.1.2"
+    
   },
   "devDependencies": {
     "vite": "^7.1.2"
