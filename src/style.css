@@ -72,6 +72,64 @@ body {
   font-size: 12px;
 }
 
+.toolbar-tools {
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  margin-left: auto;
+
+  margin-right: 30px;
+}
+
+.toolbar-button {
+  min-width: 72px;
+
+  height: 32px;
+
+  padding: 0 12px;
+
+  border: 1px solid #4b4b52;
+
+  border-radius: 5px;
+
+  background: #303033;
+
+  color: #ffffff;
+
+  font-family: Consolas, monospace;
+
+  font-size: 11px;
+
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.toolbar-button:hover {
+  background: #3b3b3f;
+
+  border-color: #00ff88;
+}
+
+.toolbar-button.active {
+  background: #26352f;
+
+  border-color: #00ff88;
+
+  color: #00ff88;
+}
+
+.toolbar-button.secondary {
+  color: #aaaaaa;
+}
+
 /*
 |--------------------------------------------------------------------------
 | Coordenadas
@@ -170,12 +228,6 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Entidade selecionada
-|--------------------------------------------------------------------------
-*/
-
 .dxf-entity.entity-selected {
   stroke: #00ff88;
 
@@ -184,12 +236,6 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Entidade selecionada por área
-|--------------------------------------------------------------------------
-*/
-
 .dxf-entity.area-selected {
   stroke: #00ff88;
 
@@ -197,12 +243,6 @@ body {
 
   vector-effect: non-scaling-stroke;
 }
-
-/*
-|--------------------------------------------------------------------------
-| Entidade selecionada individualmente e também pela área
-|--------------------------------------------------------------------------
-*/
 
 .dxf-entity.entity-selected.area-selected {
   stroke: #00ff88;
@@ -276,6 +316,8 @@ path.dxf-entity {
   pointer-events: auto;
 
   user-select: none;
+
+  cursor: pointer;
 }
 
 .dxf-text.entity-selected,
@@ -285,6 +327,22 @@ path.dxf-entity {
   stroke: #00ff88;
 
   stroke-width: 0.5;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Texto durante movimentação
+|--------------------------------------------------------------------------
+*/
+
+.dxf-text.entity-dragging {
+  fill: #ffff00;
+
+  stroke: #ffff00;
+
+  stroke-width: 0.5;
+
+  cursor: grabbing;
 }
 
 /*
@@ -585,6 +643,142 @@ path.dxf-entity {
 
 /*
 |--------------------------------------------------------------------------
+| Campos editáveis
+|--------------------------------------------------------------------------
+*/
+
+.property-field {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 6px;
+
+  margin-bottom: 12px;
+}
+
+.property-field:last-child {
+  margin-bottom: 0;
+}
+
+.property-field label {
+  font-family: Consolas, monospace;
+
+  font-size: 10px;
+
+  color: #aaaaaa;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.4px;
+}
+
+.property-field input,
+.property-field textarea {
+  width: 100%;
+
+  padding: 8px 9px;
+
+  border: 1px solid #454549;
+
+  border-radius: 5px;
+
+  outline: none;
+
+  background: #181818;
+
+  color: #ffffff;
+
+  font-family: Consolas, monospace;
+
+  font-size: 12px;
+
+  resize: vertical;
+}
+
+.property-field input:focus,
+.property-field textarea:focus {
+  border-color: #00ff88;
+}
+
+.property-field textarea {
+  min-height: 76px;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Ações de edição
+|--------------------------------------------------------------------------
+*/
+
+.entity-edit-actions {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 7px;
+
+  margin-top: 14px;
+}
+
+.entity-action-button {
+  width: 100%;
+
+  min-height: 34px;
+
+  padding: 7px 12px;
+
+  border: 1px solid #454549;
+
+  border-radius: 5px;
+
+  background: #303033;
+
+  color: #ffffff;
+
+  font-family: Consolas, monospace;
+
+  font-size: 11px;
+
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+.entity-action-button:hover {
+  border-color: #00ff88;
+}
+
+.entity-action-button.primary {
+  background: #26352f;
+
+  border-color: #00ff88;
+
+  color: #00ff88;
+}
+
+.entity-action-button.danger {
+  background: #351f1f;
+
+  border-color: #733838;
+
+  color: #ff7777;
+}
+
+.entity-action-button.danger:hover {
+  border-color: #ff5555;
+
+  color: #ff5555;
+}
+
+.entity-action-button.secondary {
+  background: #303033;
+
+  color: #cccccc;
+}
+
+/*
+|--------------------------------------------------------------------------
 | Painel de seleção por área
 |--------------------------------------------------------------------------
 */
@@ -618,12 +812,6 @@ path.dxf-entity {
 
   color: #ffffff;
 }
-
-/*
-|--------------------------------------------------------------------------
-| Cabeçalho da seleção
-|--------------------------------------------------------------------------
-*/
 
 .selection-panel-header {
   display: flex;
@@ -693,12 +881,6 @@ path.dxf-entity {
   color: #ffffff;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Resumo da seleção
-|--------------------------------------------------------------------------
-*/
-
 .selection-panel-summary {
   flex-shrink: 0;
 
@@ -737,12 +919,6 @@ path.dxf-entity {
   font-size: 16px;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Lista de entidades selecionadas
-|--------------------------------------------------------------------------
-*/
-
 .selection-list {
   min-height: 0;
 
@@ -750,12 +926,6 @@ path.dxf-entity {
 
   padding: 8px;
 }
-
-/*
-|--------------------------------------------------------------------------
-| Item da lista
-|--------------------------------------------------------------------------
-*/
 
 .selection-item {
   width: 100%;
@@ -802,12 +972,6 @@ path.dxf-entity {
   border-color: #00ff88;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Conteúdo principal do item
-|--------------------------------------------------------------------------
-*/
-
 .selection-item-main {
   display: flex;
 
@@ -836,12 +1000,6 @@ path.dxf-entity {
   color: #aaaaaa;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Layer do item
-|--------------------------------------------------------------------------
-*/
-
 .selection-item-layer {
   margin-top: 5px;
 
@@ -857,12 +1015,6 @@ path.dxf-entity {
 
   white-space: nowrap;
 }
-
-/*
-|--------------------------------------------------------------------------
-| Mensagem de lista vazia
-|--------------------------------------------------------------------------
-*/
 
 .selection-empty {
   padding: 25px 15px;
@@ -880,12 +1032,140 @@ path.dxf-entity {
 
 /*
 |--------------------------------------------------------------------------
+| Modal de texto
+|--------------------------------------------------------------------------
+*/
+
+.text-dialog {
+  position: absolute;
+
+  z-index: 100;
+
+  inset: 0;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  padding: 20px;
+
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.text-dialog-card {
+  width: min(420px, 100%);
+
+  overflow: hidden;
+
+  background: #252526;
+
+  border: 1px solid #454549;
+
+  border-radius: 9px;
+
+  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.6);
+}
+
+.text-dialog-header {
+  display: flex;
+
+  align-items: flex-start;
+
+  justify-content: space-between;
+
+  padding: 16px;
+
+  border-bottom: 1px solid #3f3f46;
+}
+
+.text-dialog-label {
+  display: block;
+
+  margin-bottom: 5px;
+
+  font-family: Consolas, monospace;
+
+  font-size: 10px;
+
+  letter-spacing: 0.8px;
+
+  color: #999999;
+}
+
+.text-dialog-header h2 {
+  margin: 0;
+
+  font-family: Consolas, monospace;
+
+  font-size: 17px;
+
+  color: #00ff88;
+}
+
+.text-dialog-close {
+  width: 28px;
+
+  height: 28px;
+
+  border: none;
+
+  border-radius: 4px;
+
+  background: transparent;
+
+  color: #aaaaaa;
+
+  font-size: 22px;
+
+  cursor: pointer;
+}
+
+.text-dialog-close:hover {
+  background: #3f3f46;
+
+  color: #ffffff;
+}
+
+.text-dialog-content {
+  padding: 16px;
+}
+
+.text-dialog-grid {
+  display: grid;
+
+  grid-template-columns: 1fr 1fr;
+
+  gap: 12px;
+}
+
+.text-dialog-footer {
+  display: flex;
+
+  justify-content: flex-end;
+
+  gap: 8px;
+
+  padding: 12px 16px;
+
+  border-top: 1px solid #3f3f46;
+}
+
+.text-dialog-footer .entity-action-button {
+  width: auto;
+
+  min-width: 100px;
+}
+
+/*
+|--------------------------------------------------------------------------
 | Estado oculto
 |--------------------------------------------------------------------------
 */
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 /*
@@ -900,4 +1180,44 @@ path.dxf-entity {
 
 .canvas-container.panning #dxf-canvas {
   cursor: grabbing;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Cursor durante inserção
+|--------------------------------------------------------------------------
+*/
+
+.canvas-container.text-insert-mode {
+  cursor: copy;
+}
+
+.canvas-container.text-insert-mode #dxf-canvas {
+  cursor: copy;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Responsividade básica
+|--------------------------------------------------------------------------
+*/
+
+@media (max-width: 900px) {
+  .toolbar-tools {
+    margin-right: 10px;
+  }
+
+  .selection-panel {
+    right: 15px;
+
+    top: auto;
+
+    bottom: 15px;
+
+    max-height: 40%;
+  }
+
+  .entity-panel {
+    max-height: 45%;
+  }
 }

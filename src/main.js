@@ -128,11 +128,6 @@ let selectedSegment = null;
 |--------------------------------------------------------------------------
 | Entidades selecionadas por área
 |--------------------------------------------------------------------------
-|
-| Utilizamos Set para impedir IDs duplicados e facilitar operações
-| futuras de edição em lote.
-|
-|--------------------------------------------------------------------------
 */
 
 const selectedEntities = new Set();
@@ -171,11 +166,6 @@ let currentViewBox = {
 /*
 |--------------------------------------------------------------------------
 | ViewBox inicial
-|--------------------------------------------------------------------------
-|
-| Mantemos uma cópia do ViewBox original para controlar os limites
-| mínimo e máximo do zoom.
-|
 |--------------------------------------------------------------------------
 */
 
@@ -232,6 +222,14 @@ let areaSelectionState = {
 
 /*
 |--------------------------------------------------------------------------
+| Área selecionada atualmente
+|--------------------------------------------------------------------------
+*/
+
+let currentAreaSelectionBounds = null;
+
+/*
+|--------------------------------------------------------------------------
 | Elemento SVG do retângulo de seleção
 |--------------------------------------------------------------------------
 */
@@ -258,10 +256,6 @@ let panState = {
 |--------------------------------------------------------------------------
 | Estado do clique
 |--------------------------------------------------------------------------
-|
-| Usado para diferenciar clique simples de arrasto.
-|
-|--------------------------------------------------------------------------
 */
 
 let leftMouseDownState = {
@@ -275,6 +269,28 @@ let leftMouseDownState = {
 
   startClientY: 0,
 };
+
+/*
+|--------------------------------------------------------------------------
+| ID interno das novas entidades
+|--------------------------------------------------------------------------
+*/
+
+let nextGeneratedEntityId = null;
+
+/*
+|--------------------------------------------------------------------------
+| Painel lateral da seleção
+|--------------------------------------------------------------------------
+*/
+
+let selectionSidePanel = null;
+
+let selectionSidePanelContent = null;
+
+let addTextToAreaButton = null;
+
+let areaSelectionInfoElement = null;
 
 /*
 |--------------------------------------------------------------------------
@@ -319,6 +335,8 @@ function prepareEntities(dxf) {
 
     entity.__type = entity.type;
   });
+
+  nextGeneratedEntityId = dxf.entities.length;
 
   console.log("Entidades preparadas:", dxf.entities.length);
 }
@@ -643,6 +661,28 @@ function getTextValue(entity) {
 
 /*
 |--------------------------------------------------------------------------
+| Obter posição do texto
+|--------------------------------------------------------------------------
+*/
+
+function getTextPosition(entity) {
+  return entity.startPoint ?? entity.position ?? entity.point ?? null;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Limpar conteúdo MTEXT
+|--------------------------------------------------------------------------
+*/
+
+function cleanMTextValue(value) {
+  return String(value)
+    .replace(/\\P/g, "\n")
+    .replace(/\\[A-Za-z][^;]*;/g, "");
+}
+
+/*
+|--------------------------------------------------------------------------
 | Criar TEXT
 |--------------------------------------------------------------------------
 */
@@ -654,7 +694,7 @@ function createSvgText(entity) {
     return null;
   }
 
-  const position = entity.startPoint ?? entity.position ?? entity.point;
+  const position = getTextPosition(entity);
 
   if (!position) {
     return null;
@@ -679,11 +719,13 @@ function createSvgText(entity) {
   if (rotation !== 0) {
     text.setAttribute(
       "transform",
-      `rotate(${-rotation} ` + `${position.x} ` + `${-position.y})`,
+      `rotate(${-rotation} ${position.x} ${-position.y})`,
     );
   }
 
   text.setAttribute("dominant-baseline", "alphabetic");
+
+  text.classList.add("dxf-entity");
 
   text.classList.add("dxf-text");
 
@@ -715,9 +757,7 @@ function createSvgMText(entity) {
 
   const text = createSvgElement("text");
 
-  const cleanText = textValue
-    .replace(/\\P/g, "\n")
-    .replace(/\\[A-Za-z][^;]*;/g, "");
+  const cleanText = cleanMTextValue(textValue);
 
   text.textContent = cleanText;
 
@@ -734,9 +774,11 @@ function createSvgMText(entity) {
   if (rotation !== 0) {
     text.setAttribute(
       "transform",
-      `rotate(${-rotation} ` + `${position.x} ` + `${-position.y})`,
+      `rotate(${-rotation} ${position.x} ${-position.y})`,
     );
   }
+
+  text.classList.add("dxf-entity");
 
   text.classList.add("dxf-text");
 
@@ -784,7 +826,7 @@ function configureSvg(bounds) {
 
   svgElement.setAttribute(
     "viewBox",
-    `${x} ${y} ` + `${viewBoxWidth} ` + `${viewBoxHeight}`,
+    `${x} ${y} ${viewBoxWidth} ${viewBoxHeight}`,
   );
 
   svgElement.setAttribute("preserveAspectRatio", "xMidYMid meet");
@@ -854,10 +896,6 @@ function getZoomLimits() {
 /*
 |--------------------------------------------------------------------------
 | Aplicar zoom
-|--------------------------------------------------------------------------
-|
-| O zoom acontece exatamente em torno da posição do mouse.
-|
 |--------------------------------------------------------------------------
 */
 
@@ -1207,12 +1245,6 @@ function screenToSvgCoordinates(event) {
   return {
     x: svgPoint.x,
 
-    /*
-      |--------------------------------------------------------------------------
-      | O SVG está invertido verticalmente
-      |--------------------------------------------------------------------------
-      */
-
     y: -svgPoint.y,
   };
 }
@@ -1457,12 +1489,6 @@ function calculatePointToSegmentDistance(point, start, end) {
 
   const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
 
-  /*
-    |--------------------------------------------------------------------------
-    | Segmento degenerado
-    |--------------------------------------------------------------------------
-    */
-
   if (segmentLengthSquared === 0) {
     const deltaX = point.x - start.x;
 
@@ -1653,6 +1679,50 @@ function findNearestPolyline(coordinates) {
         segment: nearestSegment,
       }
     : null;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Encontrar TEXT/MTEXT próximo
+|--------------------------------------------------------------------------
+*/
+
+function findNearestText(coordinates) {
+  if (!currentDxf || !Array.isArray(currentDxf.entities)) {
+    return null;
+  }
+
+  const tolerance = getLineSelectionTolerance() * 1.5;
+
+  let nearestText = null;
+
+  let nearestDistance = Infinity;
+
+  for (const entity of currentDxf.entities) {
+    if (entity.type !== "TEXT" && entity.type !== "MTEXT") {
+      continue;
+    }
+
+    const position = getTextPosition(entity);
+
+    if (!position || !isValidVertex(position)) {
+      continue;
+    }
+
+    const deltaX = coordinates.x - position.x;
+
+    const deltaY = coordinates.y - position.y;
+
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+    if (distance <= tolerance && distance < nearestDistance) {
+      nearestDistance = distance;
+
+      nearestText = entity;
+    }
+  }
+
+  return nearestText;
 }
 
 /*
@@ -1864,6 +1934,10 @@ function refreshAreaSelectionVisuals() {
 */
 
 function updateSelectionPanel() {
+  if (!selectionListElement || !selectionCountElement) {
+    return;
+  }
+
   selectionListElement.innerHTML = "";
 
   const entities = Array.from(selectedEntities)
@@ -1877,103 +1951,394 @@ function updateSelectionPanel() {
 
   if (entities.length === 0) {
     selectionListElement.innerHTML =
-      '<div class="selection-empty">Nenhuma entidade selecionada.</div>';
+      '<div class="selection-empty">Nenhuma entidade dentro da área.</div>';
+  } else {
+    for (const entity of entities) {
+      const item = document.createElement("button");
 
-    selectionPanel.classList.add("hidden");
+      item.type = "button";
 
+      item.className = "selection-item";
+
+      if (entity.__id === activeSelectionListEntityId) {
+        item.classList.add("active");
+      }
+
+      item.dataset.entityId = entity.__id;
+
+      const main = document.createElement("div");
+
+      main.className = "selection-item-main";
+
+      const type = document.createElement("span");
+
+      type.className = "selection-item-type";
+
+      type.textContent = entity.type;
+
+      const id = document.createElement("span");
+
+      id.className = "selection-item-id";
+
+      id.textContent = `ID ${entity.__id}`;
+
+      const layer = document.createElement("div");
+
+      layer.className = "selection-item-layer";
+
+      layer.textContent = `Layer: ${entity.layer ?? "0"}`;
+
+      main.appendChild(type);
+
+      main.appendChild(id);
+
+      item.appendChild(main);
+
+      item.appendChild(layer);
+
+      item.addEventListener("click", (event) => {
+        event.stopPropagation();
+
+        const selected = currentDxf?.entities?.find(
+          (candidate) => candidate.__id === entity.__id,
+        );
+
+        if (!selected) {
+          return;
+        }
+
+        activeSelectionListEntityId = selected.__id;
+
+        const svgElementForEntity = findSvgElementByEntity(selected);
+
+        if (selectedEntityElement) {
+          selectedEntityElement.classList.remove("entity-selected");
+        }
+
+        selectedEntity = selected;
+
+        selectedSegment = null;
+
+        selectedEntityElement = svgElementForEntity;
+
+        if (selectedEntityElement) {
+          selectedEntityElement.classList.add("entity-selected");
+
+          selectedEntityElement.classList.add("area-selected");
+        }
+
+        updateEntityPanel(selected);
+
+        updateSelectionPanel();
+
+        console.log("Entidade da seleção por área aberta:", {
+          id: selected.__id,
+
+          type: selected.type,
+
+          layer: selected.layer ?? "0",
+        });
+      });
+
+      selectionListElement.appendChild(item);
+    }
+  }
+
+  updateAreaSelectionInfo();
+
+  showSelectionSidePanel();
+}
+
+/*
+|--------------------------------------------------------------------------
+| Atualizar informação da área
+|--------------------------------------------------------------------------
+*/
+
+function updateAreaSelectionInfo() {
+  if (!areaSelectionInfoElement) {
     return;
   }
 
-  selectionPanel.classList.remove("hidden");
+  if (!currentAreaSelectionBounds) {
+    areaSelectionInfoElement.textContent =
+      "Arraste uma área sobre a planta para selecioná-la.";
+    return;
+  }
 
-  for (const entity of entities) {
-    const item = document.createElement("button");
+  const width =
+    currentAreaSelectionBounds.maxX - currentAreaSelectionBounds.minX;
 
-    item.type = "button";
+  const height =
+    currentAreaSelectionBounds.maxY - currentAreaSelectionBounds.minY;
 
-    item.className = "selection-item";
+  areaSelectionInfoElement.innerHTML =
+    `<strong>Área selecionada</strong><br>` +
+    `Largura: ${formatEntityNumber(width)}<br>` +
+    `Altura: ${formatEntityNumber(height)}`;
+}
 
-    if (entity.__id === activeSelectionListEntityId) {
-      item.classList.add("active");
+/*
+|--------------------------------------------------------------------------
+| Criar painel lateral
+|--------------------------------------------------------------------------
+*/
+
+function createSelectionSidePanel() {
+  if (selectionSidePanel) {
+    return;
+  }
+
+  selectionSidePanel = document.createElement("aside");
+
+  selectionSidePanel.id = "selection-side-panel";
+
+  selectionSidePanelContent = document.createElement("div");
+
+  selectionSidePanelContent.className = "selection-side-panel-content";
+
+  const title = document.createElement("div");
+
+  title.className = "selection-side-panel-title";
+
+  title.textContent = "Seleção por área";
+
+  const description = document.createElement("div");
+
+  description.className = "selection-side-panel-description";
+
+  description.textContent =
+    "Selecione uma área da planta e utilize as ações disponíveis.";
+
+  areaSelectionInfoElement = document.createElement("div");
+
+  areaSelectionInfoElement.className = "selection-side-panel-area-info";
+
+  areaSelectionInfoElement.textContent =
+    "Arraste uma área sobre a planta para selecioná-la.";
+
+  addTextToAreaButton = document.createElement("button");
+
+  addTextToAreaButton.type = "button";
+
+  addTextToAreaButton.className = "selection-side-panel-action";
+
+  addTextToAreaButton.textContent = "Adicionar texto na área";
+
+  addTextToAreaButton.addEventListener("click", (event) => {
+    event.preventDefault();
+
+    event.stopPropagation();
+
+    addTextInsideCurrentArea();
+  });
+
+  const entityTitle = document.createElement("div");
+
+  entityTitle.className = "selection-side-panel-subtitle";
+
+  entityTitle.textContent = "Entidades encontradas";
+
+  selectionSidePanelContent.appendChild(title);
+
+  selectionSidePanelContent.appendChild(description);
+
+  selectionSidePanelContent.appendChild(areaSelectionInfoElement);
+
+  selectionSidePanelContent.appendChild(addTextToAreaButton);
+
+  selectionSidePanelContent.appendChild(entityTitle);
+
+  if (selectionPanel) {
+    selectionPanel.style.display = "none";
+  }
+
+  selectionSidePanel.appendChild(selectionSidePanelContent);
+
+  document.body.appendChild(selectionSidePanel);
+
+  injectSelectionSidePanelStyles();
+}
+
+/*
+|--------------------------------------------------------------------------
+| Injetar estilos do painel lateral
+|--------------------------------------------------------------------------
+*/
+
+function injectSelectionSidePanelStyles() {
+  if (document.getElementById("selection-side-panel-styles")) {
+    return;
+  }
+
+  const style = document.createElement("style");
+
+  style.id = "selection-side-panel-styles";
+
+  style.textContent = `
+    #selection-side-panel {
+      position: fixed;
+      top: 50%;
+      right: 18px;
+      transform: translateY(-50%);
+      width: 320px;
+      max-width: calc(100vw - 36px);
+      max-height: calc(100vh - 36px);
+      z-index: 9999;
+      overflow: hidden;
+      pointer-events: auto;
     }
 
-    item.dataset.entityId = entity.__id;
+    #selection-side-panel .selection-side-panel-content {
+      box-sizing: border-box;
+      width: 100%;
+      max-height: calc(100vh - 36px);
+      overflow-y: auto;
+      padding: 18px;
+      border-radius: 12px;
+      background: rgba(20, 20, 20, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(8px);
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+    }
 
-    const main = document.createElement("div");
+    #selection-side-panel .selection-side-panel-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
 
-    main.className = "selection-item-main";
+    #selection-side-panel .selection-side-panel-description {
+      font-size: 13px;
+      line-height: 1.45;
+      opacity: 0.75;
+      margin-bottom: 14px;
+    }
 
-    const type = document.createElement("span");
+    #selection-side-panel .selection-side-panel-area-info {
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 10px;
+      margin-bottom: 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+    }
 
-    type.className = "selection-item-type";
+    #selection-side-panel .selection-side-panel-action {
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      padding: 11px 12px;
+      margin-bottom: 18px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+      background: #ffffff;
+      color: #111111;
+    }
 
-    type.textContent = entity.type;
+    #selection-side-panel .selection-side-panel-action:hover {
+      opacity: 0.88;
+    }
 
-    const id = document.createElement("span");
+    #selection-side-panel .selection-side-panel-subtitle {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
 
-    id.className = "selection-item-id";
+    #selection-side-panel .selection-empty {
+      font-size: 13px;
+      opacity: 0.65;
+      padding: 8px 0;
+    }
 
-    id.textContent = `ID ${entity.__id}`;
+    #selection-side-panel .selection-item {
+      width: 100%;
+      box-sizing: border-box;
+      display: block;
+      text-align: left;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 9px;
+      margin-bottom: 7px;
+      background: rgba(255, 255, 255, 0.04);
+      color: #ffffff;
+      cursor: pointer;
+    }
 
-    const layer = document.createElement("div");
+    #selection-side-panel .selection-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
 
-    layer.className = "selection-item-layer";
+    #selection-side-panel .selection-item.active {
+      border-color: rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.1);
+    }
 
-    layer.textContent = `Layer: ${entity.layer ?? "0"}`;
+    #selection-side-panel .selection-item-main {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
 
-    main.appendChild(type);
+    #selection-side-panel .selection-item-type {
+      font-weight: 700;
+      font-size: 12px;
+    }
 
-    main.appendChild(id);
+    #selection-side-panel .selection-item-id {
+      font-size: 11px;
+      opacity: 0.65;
+    }
 
-    item.appendChild(main);
+    #selection-side-panel .selection-item-layer {
+      font-size: 11px;
+      opacity: 0.65;
+    }
 
-    item.appendChild(layer);
-
-    item.addEventListener("click", (event) => {
-      event.stopPropagation();
-
-      const selected = currentDxf?.entities?.find(
-        (candidate) => candidate.__id === entity.__id,
-      );
-
-      if (!selected) {
-        return;
+    @media (max-width: 900px) {
+      #selection-side-panel {
+        top: auto;
+        bottom: 12px;
+        right: 12px;
+        transform: none;
+        width: 300px;
       }
+    }
+  `;
 
-      activeSelectionListEntityId = selected.__id;
+  document.head.appendChild(style);
+}
 
-      const svgElementForEntity = findSvgElementByEntity(selected);
+/*
+|--------------------------------------------------------------------------
+| Mostrar painel lateral
+|--------------------------------------------------------------------------
+*/
 
-      if (selectedEntityElement) {
-        selectedEntityElement.classList.remove("entity-selected");
-      }
+function showSelectionSidePanel() {
+  createSelectionSidePanel();
 
-      selectedEntity = selected;
+  if (selectionSidePanel) {
+    selectionSidePanel.style.display = "block";
+  }
+}
 
-      selectedSegment = null;
+/*
+|--------------------------------------------------------------------------
+| Esconder painel lateral
+|--------------------------------------------------------------------------
+*/
 
-      selectedEntityElement = svgElementForEntity;
-
-      if (selectedEntityElement) {
-        selectedEntityElement.classList.add("entity-selected");
-
-        selectedEntityElement.classList.add("area-selected");
-      }
-
-      updateEntityPanel(selected);
-
-      updateSelectionPanel();
-
-      console.log("Entidade da seleção por área aberta:", {
-        id: selected.__id,
-
-        type: selected.type,
-
-        layer: selected.layer ?? "0",
-      });
-    });
-
-    selectionListElement.appendChild(item);
+function hideSelectionSidePanel() {
+  if (selectionSidePanel) {
+    selectionSidePanel.style.display = "none";
   }
 }
 
@@ -1990,13 +2355,30 @@ function clearAreaSelection(options = {}) {
 
   activeSelectionListEntityId = null;
 
+  currentAreaSelectionBounds = null;
+
   refreshAreaSelectionVisuals();
 
   if (hidePanel) {
-    selectionPanel.classList.add("hidden");
+    hideSelectionSidePanel();
+
+    if (selectionPanel) {
+      selectionPanel.classList.add("hidden");
+    }
   }
 
-  updateSelectionPanel();
+  if (selectionListElement) {
+    selectionListElement.innerHTML = "";
+  }
+
+  if (selectionCountElement) {
+    selectionCountElement.textContent = "0";
+  }
+
+  if (areaSelectionInfoElement) {
+    areaSelectionInfoElement.textContent =
+      "Arraste uma área sobre a planta para selecioná-la.";
+  }
 
   if (log) {
     console.log("Seleção por área removida.");
@@ -2070,9 +2452,15 @@ function selectEntitiesInArea(selectionBounds) {
     }
   }
 
+  currentAreaSelectionBounds = {
+    ...selectionBounds,
+  };
+
   refreshAreaSelectionVisuals();
 
   updateSelectionPanel();
+
+  showSelectionSidePanel();
 
   console.log("======================================");
 
@@ -2124,6 +2512,8 @@ function createSelectionRectangle() {
   selectionRectangleElement.setAttribute("width", 0);
 
   selectionRectangleElement.setAttribute("height", 0);
+
+  selectionRectangleElement.style.pointerEvents = "none";
 
   svgElement.appendChild(selectionRectangleElement);
 
@@ -2226,7 +2616,7 @@ function getAreaSelectionBounds() {
 
 /*
 |--------------------------------------------------------------------------
-| Verificar se houve movimento suficiente para ser arrasto
+| Verificar se houve movimento suficiente
 |--------------------------------------------------------------------------
 */
 
@@ -2432,14 +2822,6 @@ function updatePan(event) {
 
   const delta = getPanDeltaFromScreenMovement(deltaScreenX, deltaScreenY);
 
-  /*
-    |--------------------------------------------------------------------------
-    | O conteúdo deve acompanhar o movimento do mouse.
-    |
-    | Por isso o deslocamento do ViewBox é aplicado com sinal invertido.
-    |--------------------------------------------------------------------------
-    */
-
   currentViewBox.x -= delta.x;
 
   currentViewBox.y -= delta.y;
@@ -2506,21 +2888,9 @@ function selectEntity(entity, selectionData = null) {
     return;
   }
 
-  /*
-    |--------------------------------------------------------------------------
-    | Remove seleção visual anterior
-    |--------------------------------------------------------------------------
-    */
-
   if (selectedEntityElement) {
     selectedEntityElement.classList.remove("entity-selected");
   }
-
-  /*
-    |--------------------------------------------------------------------------
-    | Guarda nova entidade
-    |--------------------------------------------------------------------------
-    */
 
   selectedEntity = entity;
 
@@ -2530,41 +2900,17 @@ function selectEntity(entity, selectionData = null) {
     ? entity.__id
     : null;
 
-  /*
-    |--------------------------------------------------------------------------
-    | Localiza elemento SVG correspondente
-    |--------------------------------------------------------------------------
-    */
-
   selectedEntityElement = findSvgElementByEntity(entity);
 
   if (selectedEntityElement) {
     selectedEntityElement.classList.add("entity-selected");
   }
 
-  /*
-    |--------------------------------------------------------------------------
-    | Atualiza painel
-    |--------------------------------------------------------------------------
-    */
-
   updateEntityPanel(entity, selectionData);
-
-  /*
-    |--------------------------------------------------------------------------
-    | Atualiza lista caso a entidade pertença à seleção por área
-    |--------------------------------------------------------------------------
-    */
 
   if (selectedEntities.size > 0) {
     updateSelectionPanel();
   }
-
-  /*
-    |--------------------------------------------------------------------------
-    | Log
-    |--------------------------------------------------------------------------
-    */
 
   console.log("======================================");
 
@@ -2575,12 +2921,6 @@ function selectEntity(entity, selectionData = null) {
   console.log("ID:", entity.__id);
 
   console.log("Layer:", entity.layer ?? "0");
-
-  /*
-    |--------------------------------------------------------------------------
-    | LINE
-    |--------------------------------------------------------------------------
-    */
 
   if (entity.type === "LINE") {
     const endpoints = getLineEndpoints(entity);
@@ -2604,12 +2944,6 @@ function selectEntity(entity, selectionData = null) {
     console.log("Comprimento:", length);
   }
 
-  /*
-    |--------------------------------------------------------------------------
-    | LWPOLYLINE
-    |--------------------------------------------------------------------------
-    */
-
   if (entity.type === "LWPOLYLINE") {
     const vertices = Array.isArray(entity.vertices) ? entity.vertices : [];
 
@@ -2632,9 +2966,160 @@ function selectEntity(entity, selectionData = null) {
     console.log("Vértices:", vertices);
   }
 
+  if (entity.type === "TEXT" || entity.type === "MTEXT") {
+    console.log("Texto:", getTextValue(entity));
+
+    console.log("Posição:", getTextPosition(entity));
+  }
+
   console.log("Entidade completa:", entity);
 
   console.log("======================================");
+}
+
+/*
+|--------------------------------------------------------------------------
+| Criar TEXT dentro da área selecionada
+|--------------------------------------------------------------------------
+*/
+
+function createTextEntityInsideArea(textValue) {
+  if (!currentDxf || !currentAreaSelectionBounds) {
+    return null;
+  }
+
+  const cleanValue = String(textValue ?? "").trim();
+
+  if (!cleanValue) {
+    return null;
+  }
+
+  const bounds = currentAreaSelectionBounds;
+
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+
+  const areaWidth = bounds.maxX - bounds.minX;
+
+  const areaHeight = bounds.maxY - bounds.minY;
+
+  const defaultHeight = Math.max(
+    Math.min(areaWidth, areaHeight) * 0.12,
+    getLineSelectionTolerance() * 2,
+  );
+
+  const entity = {
+    type: "TEXT",
+
+    __type: "TEXT",
+
+    __id: nextGeneratedEntityId++,
+
+    layer: "0",
+
+    text: cleanValue,
+
+    textHeight: defaultHeight,
+
+    height: defaultHeight,
+
+    rotation: 0,
+
+    startPoint: {
+      x: centerX,
+
+      y: centerY,
+    },
+  };
+
+  currentDxf.entities.push(entity);
+
+  const element = createSvgText(entity);
+
+  if (!element) {
+    currentDxf.entities.pop();
+
+    nextGeneratedEntityId--;
+
+    return null;
+  }
+
+  element.classList.add("user-created-text");
+
+  svgElement.appendChild(element);
+
+  console.log("======================================");
+
+  console.log("NOVO TEXT CRIADO");
+
+  console.log("ID:", entity.__id);
+
+  console.log("Texto:", entity.text);
+
+  console.log("Posição:", {
+    x: centerX,
+
+    y: centerY,
+  });
+
+  console.log("Área utilizada:", currentAreaSelectionBounds);
+
+  console.log("Entidade adicionada ao currentDxf:", entity);
+
+  console.log("======================================");
+
+  return entity;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Adicionar texto dentro da área atual
+|--------------------------------------------------------------------------
+*/
+
+function addTextInsideCurrentArea() {
+  if (!currentAreaSelectionBounds) {
+    alert(
+      "Primeiro selecione uma área da planta arrastando com o botão esquerdo.",
+    );
+
+    return;
+  }
+
+  const textValue = window.prompt(
+    "Digite o texto que deseja inserir dentro da área selecionada:",
+  );
+
+  if (textValue === null) {
+    return;
+  }
+
+  const cleanValue = textValue.trim();
+
+  if (!cleanValue) {
+    alert("Digite algum texto para continuar.");
+
+    return;
+  }
+
+  const entity = createTextEntityInsideArea(cleanValue);
+
+  if (!entity) {
+    alert("Não foi possível criar o texto dentro da área selecionada.");
+
+    return;
+  }
+
+  selectedEntities.add(entity.__id);
+
+  refreshAreaSelectionVisuals();
+
+  selectEntity(entity);
+
+  updateSelectionPanel();
+
+  console.log("Texto adicionado com sucesso dentro da área selecionada.");
 }
 
 /*
@@ -2644,12 +3129,6 @@ function selectEntity(entity, selectionData = null) {
 */
 
 function handleCanvasClick(event) {
-  /*
-    |--------------------------------------------------------------------------
-    | Não processa clique se o usuário estava fazendo pan.
-    |--------------------------------------------------------------------------
-    */
-
   if (event.button !== 0) {
     return;
   }
@@ -2657,12 +3136,6 @@ function handleCanvasClick(event) {
   if (leftMouseDownState.moved) {
     return;
   }
-
-  /*
-    |--------------------------------------------------------------------------
-    | Se a seleção por área estiver ativa, não processa clique.
-    |--------------------------------------------------------------------------
-    */
 
   if (areaSelectionState.dragging) {
     return;
@@ -2672,27 +3145,11 @@ function handleCanvasClick(event) {
 
   console.log("Clique detectado:", coordinates);
 
-  /*
-    |--------------------------------------------------------------------------
-    | Primeiro procura LWPOLYLINE
-    |--------------------------------------------------------------------------
-    */
-
   const nearestPolyline = findNearestPolyline(coordinates);
-
-  /*
-    |--------------------------------------------------------------------------
-    | Depois procura LINE
-    |--------------------------------------------------------------------------
-    */
 
   const nearestLine = findNearestLine(coordinates);
 
-  /*
-    |--------------------------------------------------------------------------
-    | Escolher a entidade geometricamente mais próxima
-    |--------------------------------------------------------------------------
-    */
+  const nearestText = findNearestText(coordinates);
 
   let nearestEntity = null;
 
@@ -2733,10 +3190,48 @@ function handleCanvasClick(event) {
   }
 
   /*
-    |--------------------------------------------------------------------------
-    | Encontrou entidade
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Verificar TEXT/MTEXT
+  |--------------------------------------------------------------------------
+  */
+
+  if (nearestText) {
+    const currentTextPosition = getTextPosition(nearestText);
+
+    let textDistance = Infinity;
+
+    if (currentTextPosition) {
+      const deltaX = coordinates.x - currentTextPosition.x;
+
+      const deltaY = coordinates.y - currentTextPosition.y;
+
+      textDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    }
+
+    let currentEntityDistance = Infinity;
+
+    if (nearestEntity) {
+      if (nearestEntity.type === "LINE") {
+        const endpoints = getLineEndpoints(nearestEntity);
+
+        if (endpoints) {
+          currentEntityDistance = calculatePointToSegmentDistance(
+            coordinates,
+            endpoints.start,
+            endpoints.end,
+          );
+        }
+      } else if (nearestEntity.type === "LWPOLYLINE") {
+        currentEntityDistance = selectionData?.distance ?? Infinity;
+      }
+    }
+
+    if (textDistance < currentEntityDistance) {
+      nearestEntity = nearestText;
+
+      selectionData = null;
+    }
+  }
 
   if (nearestEntity) {
     selectEntity(nearestEntity, selectionData);
@@ -2745,31 +3240,16 @@ function handleCanvasClick(event) {
   }
 
   /*
-    |--------------------------------------------------------------------------
-    | Nenhuma entidade encontrada.
-    |
-    | Remove seleção anterior e mantém o comportamento existente:
-    | criar POINT.
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Nenhuma entidade encontrada.
+  |--------------------------------------------------------------------------
+  */
 
   clearEntitySelection();
 
   const point = createUserPoint(coordinates);
 
-  /*
-    |--------------------------------------------------------------------------
-    | Renderizar ponto
-    |--------------------------------------------------------------------------
-    */
-
   renderUserPoint(point);
-
-  /*
-    |--------------------------------------------------------------------------
-    | Log
-    |--------------------------------------------------------------------------
-    */
 
   console.log("======================================");
 
@@ -2796,24 +3276,7 @@ function setupZoomInteraction() {
   svgElement.addEventListener(
     "wheel",
     (event) => {
-      /*
-        |--------------------------------------------------------------------------
-        | Impede o navegador de rolar a página enquanto o mouse estiver
-        | sobre a planta.
-        |--------------------------------------------------------------------------
-        */
-
       event.preventDefault();
-
-      /*
-        |--------------------------------------------------------------------------
-        | deltaY positivo:
-        | roda o scroll para baixo → zoom out
-        |
-        | deltaY negativo:
-        | roda o scroll para cima → zoom in
-        |--------------------------------------------------------------------------
-        */
 
       if (event.deltaY < 0) {
         zoomIn(event);
@@ -2837,12 +3300,6 @@ function setupZoomInteraction() {
 
 function setupZoomKeyboardShortcuts() {
   document.addEventListener("keydown", (event) => {
-    /*
-        |--------------------------------------------------------------------------
-        | Só aplica os atalhos quando o foco não estiver em um campo de texto.
-        |--------------------------------------------------------------------------
-        */
-
     const activeElement = document.activeElement;
 
     const isTyping =
@@ -2855,12 +3312,6 @@ function setupZoomKeyboardShortcuts() {
     if (isTyping) {
       return;
     }
-
-    /*
-        |--------------------------------------------------------------------------
-        | Para teclado, utilizamos o centro visual da planta.
-        |--------------------------------------------------------------------------
-        */
 
     const rect = svgElement.getBoundingClientRect();
 
@@ -2895,27 +3346,9 @@ function setupZoomKeyboardShortcuts() {
 */
 
 function setupMouseInteraction() {
-  /*
-    |--------------------------------------------------------------------------
-    | Coordenadas
-    |--------------------------------------------------------------------------
-    */
-
   svgElement.addEventListener("mousemove", updateMouseCoordinates);
 
-  /*
-    |--------------------------------------------------------------------------
-    | Clique simples
-    |--------------------------------------------------------------------------
-    */
-
   svgElement.addEventListener("click", handleCanvasClick);
-
-  /*
-    |--------------------------------------------------------------------------
-    | Fechar painel de entidade
-    |--------------------------------------------------------------------------
-    */
 
   entityPanelCloseButton.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -2923,25 +3356,21 @@ function setupMouseInteraction() {
     clearEntitySelection();
   });
 
-  /*
-    |--------------------------------------------------------------------------
-    | Fechar/limpar seleção por área
-    |--------------------------------------------------------------------------
-    */
+  if (selectionPanelCloseButton) {
+    selectionPanelCloseButton.addEventListener("click", (event) => {
+      event.stopPropagation();
 
-  selectionPanelCloseButton.addEventListener("click", (event) => {
-    event.stopPropagation();
+      clearAreaSelection();
 
-    clearAreaSelection();
-
-    clearEntitySelection();
-  });
+      clearEntitySelection();
+    });
+  }
 
   /*
-    |--------------------------------------------------------------------------
-    | Início da interação com botão esquerdo
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Botão esquerdo
+  |--------------------------------------------------------------------------
+  */
 
   svgElement.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) {
@@ -2952,10 +3381,10 @@ function setupMouseInteraction() {
   });
 
   /*
-    |--------------------------------------------------------------------------
-    | Início do pan com botão direito
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Botão direito
+  |--------------------------------------------------------------------------
+  */
 
   svgElement.addEventListener("pointerdown", (event) => {
     if (event.button !== 2) {
@@ -2966,10 +3395,10 @@ function setupMouseInteraction() {
   });
 
   /*
-    |--------------------------------------------------------------------------
-    | Movimento geral
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Movimento
+  |--------------------------------------------------------------------------
+  */
 
   svgElement.addEventListener("pointermove", (event) => {
     updateAreaSelection(event);
@@ -2978,10 +3407,10 @@ function setupMouseInteraction() {
   });
 
   /*
-    |--------------------------------------------------------------------------
-    | Finalização do botão esquerdo
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Finalização botão esquerdo
+  |--------------------------------------------------------------------------
+  */
 
   svgElement.addEventListener("pointerup", (event) => {
     if (event.button !== 0) {
@@ -3000,10 +3429,10 @@ function setupMouseInteraction() {
   });
 
   /*
-    |--------------------------------------------------------------------------
-    | Finalização do botão direito
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Finalização botão direito
+  |--------------------------------------------------------------------------
+  */
 
   svgElement.addEventListener("pointerup", (event) => {
     if (event.button !== 2) {
@@ -3014,10 +3443,10 @@ function setupMouseInteraction() {
   });
 
   /*
-    |--------------------------------------------------------------------------
-    | Caso o mouse saia do SVG enquanto um botão estiver pressionado.
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Finalização global
+  |--------------------------------------------------------------------------
+  */
 
   window.addEventListener("pointerup", (event) => {
     if (
@@ -3041,28 +3470,38 @@ function setupMouseInteraction() {
   });
 
   /*
-    |--------------------------------------------------------------------------
-    | Impedir menu de contexto do botão direito.
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Context menu
+  |--------------------------------------------------------------------------
+  */
 
   svgElement.addEventListener("contextmenu", (event) => {
     event.preventDefault();
   });
 
   /*
-    |--------------------------------------------------------------------------
-    | Captura coordenadas mesmo durante pan/seleção.
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Coordenadas durante movimento
+  |--------------------------------------------------------------------------
+  */
 
   svgElement.addEventListener("pointermove", updateMouseCoordinates);
 
   /*
-    |--------------------------------------------------------------------------
-    | Zoom
-    |--------------------------------------------------------------------------
-    */
+  |--------------------------------------------------------------------------
+  | Painel lateral
+  |--------------------------------------------------------------------------
+  */
+
+  createSelectionSidePanel();
+
+  hideSelectionSidePanel();
+
+  /*
+  |--------------------------------------------------------------------------
+  | Zoom
+  |--------------------------------------------------------------------------
+  */
 
   setupZoomInteraction();
 
@@ -3073,6 +3512,8 @@ function setupMouseInteraction() {
   console.log("Seleção por área configurada.");
 
   console.log("Pan pelo botão direito configurado.");
+
+  console.log("Painel lateral de seleção configurado.");
 }
 
 /*
@@ -3094,11 +3535,13 @@ function renderDxf(dxf) {
 
   activeSelectionListEntityId = null;
 
-  selectionPanel.classList.add("hidden");
+  currentAreaSelectionBounds = null;
+
+  selectionRectangleElement = null;
 
   entityPanel.classList.add("hidden");
 
-  selectionRectangleElement = null;
+  hideSelectionSidePanel();
 
   const bounds = calculateBounds(dxf);
 
@@ -3194,12 +3637,6 @@ async function main() {
     analyzeEntities(dxf);
 
     renderDxf(dxf);
-
-    /*
-      |--------------------------------------------------------------------------
-      | Configurar mouse somente depois do SVG existir
-      |--------------------------------------------------------------------------
-      */
 
     setupMouseInteraction();
 

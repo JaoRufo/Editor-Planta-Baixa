@@ -21,7 +21,36 @@
       <div class="toolbar-title">
         <h1>Editor DXF</h1>
 
-        <span> Protótipo </span>
+        <span>Protótipo</span>
+      </div>
+
+      <div class="toolbar-tools">
+        <button
+          id="text-tool-button"
+          class="toolbar-button"
+          type="button"
+          title="Inserir TEXT"
+        >
+          TEXT
+        </button>
+
+        <button
+          id="mtext-tool-button"
+          class="toolbar-button"
+          type="button"
+          title="Inserir MTEXT"
+        >
+          MTEXT
+        </button>
+
+        <button
+          id="cancel-edit-button"
+          class="toolbar-button secondary hidden"
+          type="button"
+          title="Cancelar ferramenta atual"
+        >
+          ESC
+        </button>
       </div>
 
       <!--
@@ -31,12 +60,12 @@
       <div id="coordinates" class="coordinates">
         <div>
           X:
-          <strong id="coordinate-x"> 0.000 </strong>
+          <strong id="coordinate-x">0.000</strong>
         </div>
 
         <div>
           Y:
-          <strong id="coordinate-y"> 0.000 </strong>
+          <strong id="coordinate-y">0.000</strong>
         </div>
       </div>
     </header>
@@ -48,33 +77,25 @@
     -->
 
     <main class="workspace">
-      <!--
-        Loading
-        -->
-
       <div id="loading" class="loading">Carregando Planta...</div>
-
-      <!--
-        Mensagem de erro
-        -->
 
       <div id="error" class="error hidden"></div>
 
       <!--
-        ============================================================
-        CANVAS
-        ============================================================
-        -->
+      ============================================================
+      CANVAS
+      ============================================================
+      -->
 
       <div class="canvas-container">
         <svg id="dxf-canvas" xmlns="http://www.w3.org/2000/svg"></svg>
       </div>
 
       <!--
-        ============================================================
-        PAINEL DE PROPRIEDADES DA ENTIDADE
-        ============================================================
-        -->
+      ============================================================
+      PAINEL DE PROPRIEDADES DA ENTIDADE
+      ============================================================
+      -->
 
       <aside id="entity-panel" class="entity-panel hidden">
         <div class="entity-panel-header">
@@ -118,6 +139,66 @@
               <span>Layer</span>
 
               <strong id="entity-layer">-</strong>
+            </div>
+          </section>
+
+          <!--
+            Propriedades específicas de texto
+            -->
+
+          <section id="text-properties" class="entity-section hidden">
+            <h3>Texto</h3>
+
+            <div class="property-field">
+              <label for="entity-text-content">Conteúdo</label>
+
+              <textarea
+                id="entity-text-content"
+                rows="4"
+                spellcheck="false"
+              ></textarea>
+            </div>
+
+            <div class="property-field">
+              <label for="entity-text-height">Altura</label>
+
+              <input id="entity-text-height" type="number" step="0.001" />
+            </div>
+
+            <div class="property-field">
+              <label for="entity-text-rotation">Rotação</label>
+
+              <input id="entity-text-rotation" type="number" step="0.001" />
+            </div>
+
+            <div class="property-field">
+              <label for="entity-text-x">Posição X</label>
+
+              <input id="entity-text-x" type="number" step="0.001" />
+            </div>
+
+            <div class="property-field">
+              <label for="entity-text-y">Posição Y</label>
+
+              <input id="entity-text-y" type="number" step="0.001" />
+            </div>
+
+            <div class="entity-edit-actions">
+              <button
+                id="entity-text-apply"
+                class="entity-action-button primary"
+                type="button"
+              >
+                Aplicar alterações
+              </button>
+
+              <button
+                id="entity-text-delete"
+                class="entity-action-button danger"
+                type="button"
+              >
+                Excluir texto
+              </button>
             </div>
           </section>
 
@@ -257,6 +338,100 @@
 
         <div id="selection-list" class="selection-list"></div>
       </aside>
+
+      <!--
+      ================================================================
+      MODAL DE INSERÇÃO DE TEXTO
+      ================================================================
+      -->
+
+      <div id="text-dialog" class="text-dialog hidden">
+        <div class="text-dialog-card">
+          <div class="text-dialog-header">
+            <div>
+              <span class="text-dialog-label">NOVA ENTIDADE</span>
+
+              <h2 id="text-dialog-title">Inserir TEXT</h2>
+            </div>
+
+            <button
+              id="text-dialog-close"
+              class="text-dialog-close"
+              type="button"
+              title="Cancelar"
+            >
+              ×
+            </button>
+          </div>
+
+          <div class="text-dialog-content">
+            <div class="property-field">
+              <label for="new-text-content">Conteúdo</label>
+
+              <textarea
+                id="new-text-content"
+                rows="4"
+                spellcheck="false"
+                placeholder="Digite o texto..."
+              ></textarea>
+            </div>
+
+            <div class="text-dialog-grid">
+              <div class="property-field">
+                <label for="new-text-height">Altura</label>
+
+                <input
+                  id="new-text-height"
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  value="10"
+                />
+              </div>
+
+              <div class="property-field">
+                <label for="new-text-rotation">Rotação</label>
+
+                <input
+                  id="new-text-rotation"
+                  type="number"
+                  step="0.001"
+                  value="0"
+                />
+              </div>
+            </div>
+
+            <div class="property-field">
+              <label for="new-text-layer">Layer</label>
+
+              <input
+                id="new-text-layer"
+                type="text"
+                value="0"
+                spellcheck="false"
+              />
+            </div>
+          </div>
+
+          <div class="text-dialog-footer">
+            <button
+              id="text-dialog-cancel"
+              class="entity-action-button secondary"
+              type="button"
+            >
+              Cancelar
+            </button>
+
+            <button
+              id="text-dialog-confirm"
+              class="entity-action-button primary"
+              type="button"
+            >
+              Inserir
+            </button>
+          </div>
+        </div>
+      </div>
     </main>
 
     <!--
