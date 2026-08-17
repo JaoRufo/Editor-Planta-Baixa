@@ -6,11 +6,15 @@ export function createAnnotation(selection, text) {
 
   return {
     id: createId("annotation"),
+    type: selection.type || "rectangle",
     page: selection.page,
     x: selection.x,
     y: selection.y,
     width,
     height,
+    points: selection.points?.map((point) => ({ x: point.x, y: point.y })) || null,
+    textX: selection.x,
+    textY: selection.y + selection.height,
     text: text.trim(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

@@ -27,6 +27,7 @@ import {
   saveProjectState,
 } from "./persistence/projectStorage.js";
 import {
+  createPdfPolygonSelection,
   isPdfPointInsideSelection,
   normalizePdfSelection,
 } from "./selection/selectionGeometry.js";
@@ -68,6 +69,7 @@ const ui = getRequiredElements({
   nextPageButton: "#nextPageButton",
   panModeButton: "#panModeButton",
   selectionModeButton: "#selectionModeButton",
+  polygonSelectionButton: "#polygonSelectionButton",
   saveProjectButton: "#saveProjectButton",
   loadProjectButton: "#loadProjectButton",
   clearProjectButton: "#clearProjectButton",
@@ -102,7 +104,10 @@ const viewerState = {
   panStartX: 0,
   panStartY: 0,
   isSelecting: false,
+  selectionShapeMode: "rectangle",
   selectionStartPdf: null,
+  polygonPointsPdf: [],
+  polygonPreviewPdf: null,
   renderTask: null,
   renderRequestId: null,
   zoomRenderTimeoutId: null,
@@ -441,49 +446,121 @@ function setInteractionMode(mode) {
   }
 
   viewerState.interactionMode = mode;
+  if (mode === "selection") {
+    setSelectionShapeMode("rectangle");
+  }
+
   ui.panModeButton.classList.toggle("is-active", mode === "pan");
   ui.panModeButton.setAttribute("aria-pressed", String(mode === "pan"));
   ui.selectionModeButton.classList.toggle("is-active", mode === "selection");
   ui.selectionModeButton.setAttribute("aria-pressed", String(mode === "selection"));
+  if (mode === "pan") {
+    ui.polygonSelectionButton.classList.remove("is-active");
+    ui.polygonSelectionButton.setAttribute("aria-pressed", "false");
+  }
   ui.viewer.classList.toggle("is-selection-mode", mode === "selection");
   setStatus(mode === "selection" ? "Modo selecao ativo" : "Modo mover ativo");
   log("Modo de interacao alterado", { mode });
 }
 
-function updateSelectionOverlay() {
-  const selection = projectState.activeSelection;
-
-  if (!selection || selection.page !== viewerState.currentPage) {
-    ui.selectionOverlay.hidden = true;
+function setSelectionShapeMode(shapeMode) {
+  if (shapeMode !== "rectangle" && shapeMode !== "polygon") {
+    logWarning(`Forma de selecao invalida: ${shapeMode}`);
     return;
   }
 
-  const topLeft = pdfToViewerCoordinates(
-    viewerState,
-    selection.x,
-    selection.y + selection.height,
+  viewerState.selectionShapeMode = shapeMode;
+  viewerState.isSelecting = false;
+  viewerState.selectionStartPdf = null;
+  viewerState.polygonPointsPdf = [];
+  viewerState.polygonPreviewPdf = null;
+  ui.viewer.classList.remove("is-selecting");
+  ui.polygonSelectionButton.classList.toggle("is-active", shapeMode === "polygon");
+  ui.polygonSelectionButton.setAttribute(
+    "aria-pressed",
+    String(shapeMode === "polygon"),
   );
-  const bottomRight = pdfToViewerCoordinates(
-    viewerState,
-    selection.x + selection.width,
-    selection.y,
+  setStatus(
+    shapeMode === "polygon"
+      ? "Selecao por poligono ativa"
+      : "Selecao por retangulo ativa",
+  );
+  log("Forma de selecao alterada", { shapeMode });
+}
+
+function updateSelectionOverlay() {
+  const selection = projectState.activeSelection;
+  const shapeElement = ui.selectionOverlay.querySelector(
+    ".selection-overlay-shape",
+  );
+  const previewElement = ui.selectionOverlay.querySelector(
+    ".selection-overlay-preview",
   );
 
-  ui.selectionOverlay.hidden = false;
-  ui.selectionOverlay.style.left = `${topLeft.x}px`;
-  ui.selectionOverlay.style.top = `${topLeft.y}px`;
-  ui.selectionOverlay.style.width = `${bottomRight.x - topLeft.x}px`;
-  ui.selectionOverlay.style.height = `${bottomRight.y - topLeft.y}px`;
+  if (!selection || selection.page !== viewerState.currentPage) {
+    hideSelectionOverlay();
+    shapeElement?.setAttribute("points", "");
+    previewElement?.setAttribute("points", "");
+    return;
+  }
+
+  const selectionPoints = getSelectionViewerPoints(selection);
+  const previewPoints =
+    viewerState.selectionShapeMode === "polygon" &&
+    viewerState.isSelecting &&
+    viewerState.polygonPreviewPdf
+      ? getPdfPointsAsViewerPoints([
+          ...viewerState.polygonPointsPdf,
+          viewerState.polygonPreviewPdf,
+        ])
+      : [];
+
+  showSelectionOverlay();
+  shapeElement?.setAttribute("points", pointsToSvgAttribute(selectionPoints));
+  previewElement?.setAttribute("points", pointsToSvgAttribute(previewPoints));
+}
+
+function showSelectionOverlay() {
+  ui.selectionOverlay.removeAttribute("hidden");
+}
+
+function hideSelectionOverlay() {
+  ui.selectionOverlay.setAttribute("hidden", "");
+}
+
+function getSelectionViewerPoints(selection) {
+  const points = selection.points?.length
+    ? selection.points
+    : [
+        { x: selection.x, y: selection.y },
+        { x: selection.x + selection.width, y: selection.y },
+        { x: selection.x + selection.width, y: selection.y + selection.height },
+        { x: selection.x, y: selection.y + selection.height },
+      ];
+
+  return getPdfPointsAsViewerPoints(points);
+}
+
+function getPdfPointsAsViewerPoints(points) {
+  return points.map((point) =>
+    pdfToViewerCoordinates(viewerState, point.x, point.y),
+  );
+}
+
+function pointsToSvgAttribute(points) {
+  return points.map((point) => `${point.x},${point.y}`).join(" ");
 }
 
 function clearSelection(reason = "Selecao removida.") {
   viewerState.isSelecting = false;
   viewerState.selectionStartPdf = null;
+  viewerState.polygonPointsPdf = [];
+  viewerState.polygonPreviewPdf = null;
   projectState.activeSelection = null;
   projectState.lineHighlights = [];
   projectState.selectedPdfItems = [];
   projectState.selectedAnnotationId = null;
-  ui.selectionOverlay.hidden = true;
+  hideSelectionOverlay();
   clearLineHighlights();
   updateSelectionPanel();
   renderAnnotations();
@@ -492,6 +569,20 @@ function clearSelection(reason = "Selecao removida.") {
 }
 
 function startSelection(event) {
+  if (viewerState.selectionShapeMode === "polygon") {
+    if (event.pointerType === "mouse" && event.button === 2) {
+      undoLastPolygonSelectionPoint();
+      return;
+    }
+
+    addPolygonSelectionPoint(event);
+    return;
+  }
+
+  startRectangleSelection(event);
+}
+
+function startRectangleSelection(event) {
   if (event.pointerType === "mouse" && event.button !== 0) {
     return;
   }
@@ -518,13 +609,11 @@ function startSelection(event) {
   viewerState.selectionStartPdf = clampPdfPoint(viewerState, pdfPoint);
   projectState.lineHighlights = [];
   projectState.selectedPdfItems = [];
-  projectState.activeSelection = {
-    page: viewerState.currentPage,
-    x: viewerState.selectionStartPdf.x,
-    y: viewerState.selectionStartPdf.y,
-    width: 0,
-    height: 0,
-  };
+  projectState.activeSelection = normalizePdfSelection(
+    viewerState.currentPage,
+    viewerState.selectionStartPdf,
+    viewerState.selectionStartPdf,
+  );
   projectState.selectedAnnotationId = null;
 
   ui.viewer.classList.add("is-selecting");
@@ -535,8 +624,94 @@ function startSelection(event) {
   log("Selecao iniciada.", { page: viewerState.currentPage });
 }
 
+function addPolygonSelectionPoint(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) {
+    return;
+  }
+
+  if (event.detail > 1) {
+    return;
+  }
+
+  const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
+  const pdfPoint = viewerToPdfCoordinates(viewerState, viewerPoint.x, viewerPoint.y);
+
+  if (!isPdfPointInsidePage(viewerState, pdfPoint)) {
+    clearSelection("Clique fora da planta removeu a selecao.");
+    return;
+  }
+
+  if (
+    !viewerState.isSelecting &&
+    isPdfPointInsideSelection(
+      pdfPoint,
+      projectState.activeSelection,
+      viewerState.currentPage,
+    )
+  ) {
+    return;
+  }
+
+  const clampedPoint = clampPdfPoint(viewerState, pdfPoint);
+
+  viewerState.isSelecting = true;
+  viewerState.polygonPointsPdf = [...viewerState.polygonPointsPdf, clampedPoint];
+  viewerState.polygonPreviewPdf = clampedPoint;
+  projectState.lineHighlights = [];
+  projectState.selectedPdfItems = [];
+  projectState.selectedAnnotationId = null;
+  projectState.activeSelection = createPdfPolygonSelection(
+    viewerState.currentPage,
+    viewerState.polygonPointsPdf,
+  );
+
+  ui.viewer.classList.add("is-selecting");
+  updateSelectionOverlay();
+  clearLineHighlights();
+  updateSelectionPanel();
+  log("Vertice de poligono adicionado.", {
+    page: viewerState.currentPage,
+    vertices: viewerState.polygonPointsPdf.length,
+  });
+}
+
+function undoLastPolygonSelectionPoint() {
+  if (
+    viewerState.selectionShapeMode !== "polygon" ||
+    !viewerState.isSelecting ||
+    !viewerState.polygonPointsPdf.length
+  ) {
+    return;
+  }
+
+  viewerState.polygonPointsPdf = viewerState.polygonPointsPdf.slice(0, -1);
+  viewerState.polygonPreviewPdf =
+    viewerState.polygonPointsPdf[viewerState.polygonPointsPdf.length - 1] || null;
+
+  if (!viewerState.polygonPointsPdf.length) {
+    clearSelection("Ultimo vertice do poligono removido.");
+    return;
+  }
+
+  projectState.activeSelection = createPdfPolygonSelection(
+    viewerState.currentPage,
+    viewerState.polygonPointsPdf,
+  );
+
+  projectState.lineHighlights = [];
+  projectState.selectedPdfItems = [];
+  clearLineHighlights();
+  updateSelectionOverlay();
+  updateSelectionPanel();
+  setStatus("Ultima linha do poligono removida");
+  log("Ultimo vertice do poligono removido.", {
+    vertices: viewerState.polygonPointsPdf.length,
+  });
+}
+
 function moveSelection(event) {
   if (!viewerState.isSelecting || !viewerState.selectionStartPdf) {
+    movePolygonSelectionPreview(event);
     return;
   }
 
@@ -556,7 +731,29 @@ function moveSelection(event) {
   clearLineHighlights();
 }
 
+function movePolygonSelectionPreview(event) {
+  if (
+    viewerState.selectionShapeMode !== "polygon" ||
+    !viewerState.isSelecting ||
+    !viewerState.polygonPointsPdf.length
+  ) {
+    return;
+  }
+
+  const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
+  viewerState.polygonPreviewPdf = clampPdfPoint(
+    viewerState,
+    viewerToPdfCoordinates(viewerState, viewerPoint.x, viewerPoint.y),
+  );
+
+  updateSelectionOverlay();
+}
+
 function endSelection(event) {
+  if (viewerState.selectionShapeMode === "polygon") {
+    return;
+  }
+
   if (!viewerState.isSelecting) {
     return;
   }
@@ -576,6 +773,38 @@ function endSelection(event) {
     return;
   }
 
+  finishSelection(selection);
+}
+
+function finishPolygonSelection() {
+  if (
+    viewerState.selectionShapeMode !== "polygon" ||
+    !viewerState.isSelecting ||
+    viewerState.polygonPointsPdf.length < 3
+  ) {
+    return;
+  }
+
+  const selection = createPdfPolygonSelection(
+    viewerState.currentPage,
+    viewerState.polygonPointsPdf,
+  );
+
+  viewerState.isSelecting = false;
+  viewerState.polygonPointsPdf = [];
+  viewerState.polygonPreviewPdf = null;
+  ui.viewer.classList.remove("is-selecting");
+  projectState.activeSelection = selection;
+
+  if (selection.width < 2 || selection.height < 2) {
+    clearSelection("Selecao muito pequena foi ignorada.");
+    return;
+  }
+
+  finishSelection(selection);
+}
+
+function finishSelection(selection) {
   updateSelectionOverlay();
   projectState.selectedPdfItems = findPdfVectorItemsForSelection(
     getPdfVectorItemsForCurrentPage(),
@@ -593,6 +822,8 @@ function endSelection(event) {
   );
   log("Selecao finalizada.", {
     page: selection.page,
+    tipo: selection.type || "rectangle",
+    vertices: selection.points?.length || 4,
     x: Math.round(selection.x),
     y: Math.round(selection.y),
     width: Math.round(selection.width),
@@ -775,11 +1006,13 @@ function startAnnotationDrag(event) {
   event.stopPropagation();
   projectState.selectedAnnotationId = annotation.id;
   projectState.activeSelection = {
+    type: annotation.type || "rectangle",
     page: annotation.page,
     x: annotation.x,
     y: annotation.y,
     width: annotation.width,
     height: annotation.height,
+    points: annotation.points?.map((point) => ({ x: point.x, y: point.y })) || null,
   };
 
   const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
@@ -788,7 +1021,10 @@ function startAnnotationDrag(event) {
     pointerId: event.pointerId,
     annotationId,
     startPdf: viewerToPdfCoordinates(viewerState, viewerPoint.x, viewerPoint.y),
-    annotationStart: { x: annotation.x, y: annotation.y },
+    textStart: {
+      x: annotation.textX ?? annotation.x,
+      y: annotation.textY ?? annotation.y + annotation.height,
+    },
   };
 
   event.currentTarget.setPointerCapture(event.pointerId);
@@ -806,30 +1042,36 @@ function moveAnnotation(event) {
   const currentPdf = viewerToPdfCoordinates(viewerState, viewerPoint.x, viewerPoint.y);
   const deltaX = currentPdf.x - annotationDrag.startPdf.x;
   const deltaY = currentPdf.y - annotationDrag.startPdf.y;
+  const annotation = projectState.annotations.find(
+    (item) => item.id === annotationDrag.annotationId,
+  );
+
+  if (!annotation) {
+    return;
+  }
 
   projectState.annotations = updateAnnotation(
     projectState.annotations,
     annotationDrag.annotationId,
     {
-      x: annotationDrag.annotationStart.x + deltaX,
-      y: annotationDrag.annotationStart.y + deltaY,
+      textX: clamp(
+        annotationDrag.textStart.x + deltaX,
+        annotation.x,
+        annotation.x + annotation.width,
+      ),
+      textY: clamp(
+        annotationDrag.textStart.y + deltaY,
+        annotation.y,
+        annotation.y + annotation.height,
+      ),
     },
   );
 
-  const annotation = projectState.annotations.find(
+  const updatedAnnotation = projectState.annotations.find(
     (item) => item.id === annotationDrag.annotationId,
   );
 
-  projectState.activeSelection = {
-    page: annotation.page,
-    x: annotation.x,
-    y: annotation.y,
-    width: annotation.width,
-    height: annotation.height,
-  };
-
-  updateSelectionOverlay();
-  updateAnnotationElementPosition(annotation);
+  updateAnnotationElementPosition(updatedAnnotation);
 }
 
 function endAnnotationDrag(event) {
@@ -852,21 +1094,16 @@ function updateAnnotationElementPosition(annotation) {
     return;
   }
 
-  const topLeft = pdfToViewerCoordinates(
+  const textTopLeft = pdfToViewerCoordinates(
     viewerState,
-    annotation.x,
-    annotation.y + annotation.height,
-  );
-  const bottomRight = pdfToViewerCoordinates(
-    viewerState,
-    annotation.x + annotation.width,
-    annotation.y,
+    annotation.textX ?? annotation.x,
+    annotation.textY ?? annotation.y + annotation.height,
   );
 
-  element.style.left = `${topLeft.x}px`;
-  element.style.top = `${topLeft.y}px`;
-  element.style.width = `${bottomRight.x - topLeft.x}px`;
-  element.style.minHeight = `${Math.max(bottomRight.y - topLeft.y, 30)}px`;
+  element.style.left = `${textTopLeft.x}px`;
+  element.style.top = `${textTopLeft.y}px`;
+  element.style.maxWidth = `${Math.max(annotation.width * viewerState.zoom, 80)}px`;
+  element.style.minHeight = "30px";
 }
 
 function startPan(event) {
@@ -944,6 +1181,8 @@ function handleWheel(event) {
 
 function handleDoubleClick(event) {
   if (viewerState.interactionMode === "selection") {
+    event.preventDefault();
+    finishPolygonSelection();
     return;
   }
 
@@ -1125,6 +1364,10 @@ function bindEvents() {
   ui.selectionModeButton.addEventListener("click", () =>
     setInteractionMode("selection"),
   );
+  ui.polygonSelectionButton.addEventListener("click", () => {
+    setInteractionMode("selection");
+    setSelectionShapeMode("polygon");
+  });
   ui.saveProjectButton.addEventListener("click", saveCurrentProject);
   ui.loadProjectButton.addEventListener("click", loadSavedProject);
   ui.clearProjectButton.addEventListener("click", clearLocalProject);
@@ -1135,6 +1378,14 @@ function bindEvents() {
   ui.viewer.addEventListener("pointercancel", handlePointerEnd);
   ui.viewer.addEventListener("wheel", handleWheel, { passive: false });
   ui.viewer.addEventListener("dblclick", handleDoubleClick);
+  ui.viewer.addEventListener("contextmenu", (event) => {
+    if (
+      viewerState.interactionMode === "selection" &&
+      viewerState.selectionShapeMode === "polygon"
+    ) {
+      event.preventDefault();
+    }
+  });
 
   window.addEventListener("keydown", (event) => {
     if (event.key === "+" || event.key === "=") {
@@ -1158,6 +1409,12 @@ function bindEvents() {
     if (event.key === "Escape") {
       event.preventDefault();
       clearSelection();
+      return;
+    }
+
+    if (event.key === "Enter" && viewerState.interactionMode === "selection") {
+      event.preventDefault();
+      finishPolygonSelection();
     }
   });
 

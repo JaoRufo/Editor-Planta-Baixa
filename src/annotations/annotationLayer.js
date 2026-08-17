@@ -14,15 +14,10 @@ export function renderAnnotationLayer({
   layerElement.innerHTML = "";
 
   for (const annotation of pageAnnotations) {
-    const topLeft = pdfToViewerCoordinates(
+    const textTopLeft = pdfToViewerCoordinates(
       viewerState,
-      annotation.x,
-      annotation.y + annotation.height,
-    );
-    const bottomRight = pdfToViewerCoordinates(
-      viewerState,
-      annotation.x + annotation.width,
-      annotation.y,
+      annotation.textX ?? annotation.x,
+      annotation.textY ?? annotation.y + annotation.height,
     );
     const element = document.createElement("button");
 
@@ -31,10 +26,10 @@ export function renderAnnotationLayer({
     element.classList.toggle("is-selected", annotation.id === selectedAnnotationId);
     element.dataset.annotationId = annotation.id;
     element.textContent = annotation.text;
-    element.style.left = `${topLeft.x}px`;
-    element.style.top = `${topLeft.y}px`;
-    element.style.width = `${bottomRight.x - topLeft.x}px`;
-    element.style.minHeight = `${Math.max(bottomRight.y - topLeft.y, 30)}px`;
+    element.style.left = `${textTopLeft.x}px`;
+    element.style.top = `${textTopLeft.y}px`;
+    element.style.maxWidth = `${Math.max(annotation.width * viewerState.zoom, 80)}px`;
+    element.style.minHeight = "30px";
 
     element.addEventListener("pointerdown", onPointerDown);
     layerElement.appendChild(element);

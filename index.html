@@ -110,6 +110,18 @@
             </button>
           </div>
 
+          <div class="toolbar-group selection-shape-controls">
+            <button
+              id="polygonSelectionButton"
+              class="toolbar-button mode-button"
+              type="button"
+              title="Selecionar poligono"
+              aria-pressed="false"
+            >
+              Poligono
+            </button>
+          </div>
+
           <div class="toolbar-separator"></div>
 
           <div class="toolbar-group">
@@ -169,7 +181,10 @@
 
           <canvas id="lineHighlightCanvas" class="line-highlight-canvas"></canvas>
 
-          <div id="selectionOverlay" class="selection-overlay" hidden></div>
+          <svg id="selectionOverlay" class="selection-overlay" hidden>
+            <polygon class="selection-overlay-shape"></polygon>
+            <polyline class="selection-overlay-preview"></polyline>
+          </svg>
 
           <div id="annotationLayer" class="annotation-layer"></div>
         </div>

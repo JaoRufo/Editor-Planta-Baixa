@@ -28,6 +28,8 @@ export function renderSelectionPanel({
     <section class="panel-section">
       <h3>Area</h3>
       <dl>
+        <div><dt>Tipo</dt><dd>${escapeHtml(getSelectionTypeLabel(selection))}</dd></div>
+        <div><dt>Vertices</dt><dd>${selection.points?.length || 4}</dd></div>
         <div><dt>Pagina</dt><dd>${selection.page}</dd></div>
         <div><dt>X</dt><dd>${Math.round(selection.x)}</dd></div>
         <div><dt>Y</dt><dd>${Math.round(selection.y)}</dd></div>
@@ -105,6 +107,10 @@ function renderPdfItems(items) {
         .join("")}
     </ul>
   `;
+}
+
+function getSelectionTypeLabel(selection) {
+  return selection.type === "polygon" ? "Poligono" : "Retangulo";
 }
 
 function renderIfcEntities(entities) {
