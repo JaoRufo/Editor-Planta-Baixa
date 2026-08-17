@@ -48,6 +48,7 @@ export function renderSelectionPanel({
             : "Carregando IFC..."
         }
       </div>
+      ${renderIfcAlignment(ifcResult.alignment, ifcResult.ifcSelection)}
       ${renderIfcEntities(ifcResult.entities)}
       ${renderIfcSummary(ifcSummary)}
     </section>
@@ -145,18 +146,47 @@ function renderIfcEntities(entities) {
   return `
     <ul class="ifc-entity-list">
       ${entities
-        .slice(0, 20)
         .map(
           (entity) => `
             <li>
               <strong>${escapeHtml(entity.name)}</strong>
-              <span>${escapeHtml(entity.type)} #${entity.stepId}</span>
+              <span>
+                ${escapeHtml(entity.type)} #${entity.stepId}
+                ${renderEntityBounds(entity)}
+              </span>
             </li>
           `,
         )
         .join("")}
     </ul>
   `;
+}
+
+function renderIfcAlignment(alignment, ifcSelection) {
+  if (!alignment || !ifcSelection) {
+    return "";
+  }
+
+  return `
+    <dl class="ifc-transform">
+      <div><dt>Alinhamento</dt><dd>${escapeHtml(alignment.source)}</dd></div>
+      <div><dt>IFC X</dt><dd>${Math.round(ifcSelection.x)}</dd></div>
+      <div><dt>IFC Y</dt><dd>${Math.round(ifcSelection.y)}</dd></div>
+      <div><dt>IFC area</dt><dd>${Math.round(ifcSelection.width)} x ${Math.round(
+        ifcSelection.height,
+      )}</dd></div>
+    </dl>
+  `;
+}
+
+function renderEntityBounds(entity) {
+  if (!entity.pdfBounds) {
+    return "";
+  }
+
+  return ` · PDF ${Math.round(entity.pdfBounds.x)}, ${Math.round(
+    entity.pdfBounds.y,
+  )}`;
 }
 
 function renderIfcSummary(summary) {

@@ -207,6 +207,38 @@
             Nenhuma área selecionada.
           </div>
         </aside>
+
+        <div id="confirmDialog" class="confirm-dialog-backdrop" hidden>
+          <section
+            class="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirmDialogTitle"
+            aria-describedby="confirmDialogMessage"
+          >
+            <h2 id="confirmDialogTitle">Confirmar acao</h2>
+
+            <p id="confirmDialogMessage"></p>
+
+            <div class="confirm-dialog-actions">
+              <button
+                id="confirmCancelButton"
+                class="panel-button"
+                type="button"
+              >
+                Cancelar
+              </button>
+
+              <button
+                id="confirmAcceptButton"
+                class="panel-button confirm-danger-button"
+                type="button"
+              >
+                Excluir
+              </button>
+            </div>
+          </section>
+        </div>
       </main>
 
       <footer class="app-footer">

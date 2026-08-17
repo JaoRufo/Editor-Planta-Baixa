@@ -1,4 +1,10 @@
 import { parseIfcText } from "./ifcParser.js";
+import {
+  getIfcPdfAlignment,
+  isImportantIfcEntity,
+  mapIfcEntityToPdf,
+  mapPdfSelectionToIfc,
+} from "./ifcAlignment.js";
 
 const IFC_FILE = "/assets/ifc/modelos/modelo.ifc";
 
@@ -38,17 +44,20 @@ export function findIfcEntitiesForSelection(ifcModel, selection, pageBounds) {
     };
   }
 
-  if (!ifcModel.modelBounds || !pageBounds?.width || !pageBounds?.height) {
+  if (!pageBounds?.width || !pageBounds?.height) {
     return {
       entities: [],
-      status: "IFC carregado sem geometria suficiente para cruzamento.",
+      status: "PDF sem dimensoes suficientes para cruzamento IFC.",
     };
   }
 
+  const alignment = getIfcPdfAlignment();
+  const ifcSelection = mapPdfSelectionToIfc(selection);
   const entities = ifcModel.products
+    .filter(isImportantIfcEntity)
     .map((product) => ({
       ...product,
-      pdfBounds: mapIfcBoundsToPdf(product.bounds, ifcModel.modelBounds, pageBounds),
+      pdfBounds: mapIfcEntityToPdf(product, pageBounds.page),
     }))
     .filter((product) => product.pdfBounds)
     .filter((product) => rectanglesIntersect(product.pdfBounds, selection))
@@ -56,31 +65,11 @@ export function findIfcEntitiesForSelection(ifcModel, selection, pageBounds) {
 
   return {
     entities,
+    alignment,
+    ifcSelection,
     status: entities.length
-      ? `${entities.length} entidade(s) IFC encontrada(s) por calibracao automatica.`
+      ? `${entities.length} entidade(s) IFC encontrada(s) por alinhamento espacial calibrado.`
       : "Nenhuma entidade IFC encontrada na area selecionada.",
-  };
-}
-
-function mapIfcBoundsToPdf(bounds, modelBounds, pageBounds) {
-  if (!bounds || !modelBounds.width || !modelBounds.height) {
-    return null;
-  }
-
-  const scaleX = pageBounds.width / modelBounds.width;
-  const scaleY = pageBounds.height / modelBounds.height;
-
-  const minX = (bounds.minX - modelBounds.minX) * scaleX;
-  const maxX = (bounds.maxX - modelBounds.minX) * scaleX;
-  const minY = (bounds.minY - modelBounds.minY) * scaleY;
-  const maxY = (bounds.maxY - modelBounds.minY) * scaleY;
-
-  return {
-    page: pageBounds.page,
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY,
   };
 }
 

@@ -80,6 +80,11 @@ const ui = getRequiredElements({
   selectionPanel: "#selectionPanel",
   selectionPanelContent: "#selectionPanelContent",
   clearSelectionButton: "#clearSelectionButton",
+  confirmDialog: "#confirmDialog",
+  confirmDialogTitle: "#confirmDialogTitle",
+  confirmDialogMessage: "#confirmDialogMessage",
+  confirmCancelButton: "#confirmCancelButton",
+  confirmAcceptButton: "#confirmAcceptButton",
 });
 
 const canvasContext = ui.canvas.getContext("2d", { alpha: false });
@@ -129,6 +134,7 @@ const projectState = {
 };
 
 let annotationDrag = null;
+let confirmDialogAction = null;
 
 const MIN_TEXT_WIDTH = 10;
 const MIN_TEXT_HEIGHT = 8;
@@ -729,6 +735,62 @@ function clearSelection(reason = "Selecao removida.") {
   renderAnnotations();
   setStatus(reason);
   log(reason);
+}
+
+function findSelectionAtPdfPoint(pdfPoint) {
+  if (
+    isPdfPointInsideSelection(
+      pdfPoint,
+      projectState.activeSelection,
+      viewerState.currentPage,
+    )
+  ) {
+    return projectState.activeSelection;
+  }
+
+  return [...projectState.selections]
+    .reverse()
+    .find((selection) =>
+      isPdfPointInsideSelection(pdfPoint, selection, viewerState.currentPage),
+    );
+}
+
+function deleteSelection(selection, reason = "Area selecionada excluida.") {
+  if (!selection) {
+    return;
+  }
+
+  const selectionSignature = getSelectionSignature(selection);
+
+  projectState.selections = projectState.selections.filter(
+    (existingSelection) =>
+      getSelectionSignature(existingSelection) !== selectionSignature,
+  );
+
+  if (
+    projectState.activeSelection &&
+    getSelectionSignature(projectState.activeSelection) === selectionSignature
+  ) {
+    projectState.activeSelection = null;
+  }
+
+  clearSelection(reason);
+}
+
+function requestSelectionDeletion(selection) {
+  if (!selection) {
+    return;
+  }
+
+  const selectionLabel =
+    selection.type === "polygon" ? "area em poligono" : "area retangular";
+
+  openConfirmDialog({
+    title: "Excluir area marcada?",
+    message: `Deseja excluir esta ${selectionLabel}? Esta acao remove a marcacao da memoria do projeto.`,
+    confirmLabel: "Excluir",
+    onConfirm: () => deleteSelection(selection),
+  });
 }
 
 function startSelection(event) {
@@ -1556,6 +1618,70 @@ function handlePointerEnd(event) {
   endPan(event);
 }
 
+function openConfirmDialog({ title, message, confirmLabel, onConfirm }) {
+  confirmDialogAction = onConfirm;
+  ui.confirmDialogTitle.textContent = title;
+  ui.confirmDialogMessage.textContent = message;
+  ui.confirmAcceptButton.textContent = confirmLabel;
+  ui.confirmDialog.removeAttribute("hidden");
+  ui.confirmCancelButton.focus();
+}
+
+function closeConfirmDialog() {
+  confirmDialogAction = null;
+  ui.confirmDialog.setAttribute("hidden", "");
+}
+
+function acceptConfirmDialog() {
+  const action = confirmDialogAction;
+
+  closeConfirmDialog();
+
+  if (action) {
+    action();
+  }
+}
+
+function requestActiveSelectionDeletion() {
+  if (!projectState.activeSelection) {
+    clearSelection();
+    return;
+  }
+
+  requestSelectionDeletion(projectState.activeSelection);
+}
+
+function handleContextMenu(event) {
+  const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
+  const pdfPoint = viewerToPdfCoordinates(viewerState, viewerPoint.x, viewerPoint.y);
+  const selection = findSelectionAtPdfPoint(pdfPoint);
+
+  if (
+    viewerState.interactionMode === "selection" &&
+    viewerState.selectionShapeMode === "polygon" &&
+    viewerState.isSelecting
+  ) {
+    event.preventDefault();
+    return;
+  }
+
+  if (selection) {
+    event.preventDefault();
+    projectState.activeSelection = cloneSelection(selection);
+    updateSelectionOverlay();
+    updateSelectionPanel();
+    requestSelectionDeletion(selection);
+    return;
+  }
+
+  if (
+    viewerState.interactionMode === "selection" &&
+    viewerState.selectionShapeMode === "polygon"
+  ) {
+    event.preventDefault();
+  }
+}
+
 function saveCurrentProject() {
   saveProjectState({
     currentPage: viewerState.currentPage,
@@ -1613,6 +1739,16 @@ function clearLocalProject() {
   projectState.lineHighlights = [];
   projectState.selectedPdfItems = [];
   clearSelection("Projeto local limpo.");
+}
+
+function requestClearLocalProject() {
+  openConfirmDialog({
+    title: "Limpar projeto local?",
+    message:
+      "Deseja limpar selecoes, anotacoes e dados salvos localmente neste navegador?",
+    confirmLabel: "Limpar",
+    onConfirm: clearLocalProject,
+  });
 }
 
 async function loadPdf() {
@@ -1701,22 +1837,22 @@ function bindEvents() {
   });
   ui.saveProjectButton.addEventListener("click", saveCurrentProject);
   ui.loadProjectButton.addEventListener("click", loadSavedProject);
-  ui.clearProjectButton.addEventListener("click", clearLocalProject);
-  ui.clearSelectionButton.addEventListener("click", () => clearSelection());
+  ui.clearProjectButton.addEventListener("click", requestClearLocalProject);
+  ui.clearSelectionButton.addEventListener("click", requestActiveSelectionDeletion);
+  ui.confirmCancelButton.addEventListener("click", closeConfirmDialog);
+  ui.confirmAcceptButton.addEventListener("click", acceptConfirmDialog);
+  ui.confirmDialog.addEventListener("pointerdown", (event) => {
+    if (event.target === ui.confirmDialog) {
+      closeConfirmDialog();
+    }
+  });
   ui.viewer.addEventListener("pointerdown", handlePointerDown);
   ui.viewer.addEventListener("pointermove", handlePointerMove);
   ui.viewer.addEventListener("pointerup", handlePointerEnd);
   ui.viewer.addEventListener("pointercancel", handlePointerEnd);
   ui.viewer.addEventListener("wheel", handleWheel, { passive: false });
   ui.viewer.addEventListener("dblclick", handleDoubleClick);
-  ui.viewer.addEventListener("contextmenu", (event) => {
-    if (
-      viewerState.interactionMode === "selection" &&
-      viewerState.selectionShapeMode === "polygon"
-    ) {
-      event.preventDefault();
-    }
-  });
+  ui.viewer.addEventListener("contextmenu", handleContextMenu);
 
   window.addEventListener("keydown", (event) => {
     if (event.key === "+" || event.key === "=") {
@@ -1739,6 +1875,10 @@ function bindEvents() {
 
     if (event.key === "Escape") {
       event.preventDefault();
+      if (!ui.confirmDialog.hidden) {
+        closeConfirmDialog();
+        return;
+      }
       clearSelection();
       return;
     }

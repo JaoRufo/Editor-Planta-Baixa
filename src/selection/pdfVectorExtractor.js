@@ -245,6 +245,10 @@ function getPathData(args) {
     return data[0];
   }
 
+  if (ArrayBuffer.isView(data[0])) {
+    return Array.from(data[0]);
+  }
+
   return Array.isArray(data) ? data : [];
 }
 

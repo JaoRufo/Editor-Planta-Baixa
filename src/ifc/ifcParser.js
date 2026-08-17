@@ -73,21 +73,19 @@ function createProduct(entity) {
 function enrichProductGeometry(product, entitiesById) {
   const placement = resolvePlacement(product.placementRef, entitiesById);
   const localPoints = resolveProductPoints(product.representationRef, entitiesById);
-  const points = localPoints.map((point) => ({
-    x: point.x + placement.x,
-    y: point.y + placement.y,
-  }));
+  const points = localPoints.map((point) => transformLocalPoint(point, placement));
 
   return {
     ...product,
     placement,
+    points,
     bounds: calculateBounds(points),
   };
 }
 
 function resolvePlacement(placementRef, entitiesById, seen = new Set()) {
   if (!placementRef || seen.has(placementRef)) {
-    return { x: 0, y: 0 };
+    return createPlacement();
   }
 
   seen.add(placementRef);
@@ -95,7 +93,7 @@ function resolvePlacement(placementRef, entitiesById, seen = new Set()) {
   const placement = entitiesById.get(placementRef);
 
   if (!placement || placement.type !== "IFCLOCALPLACEMENT") {
-    return { x: 0, y: 0 };
+    return createPlacement();
   }
 
   const parent = resolvePlacement(getRefId(placement.args[0]), entitiesById, seen);
@@ -103,10 +101,38 @@ function resolvePlacement(placementRef, entitiesById, seen = new Set()) {
   const location = axisPlacement
     ? readPoint(getRefId(axisPlacement.args[0]), entitiesById)
     : null;
+  const localDirection = axisPlacement
+    ? readDirection(getRefId(axisPlacement.args[2]), entitiesById)
+    : null;
+  const localRotation = localDirection
+    ? Math.atan2(localDirection.y, localDirection.x)
+    : 0;
+  const translatedLocation = transformLocalPoint(location || { x: 0, y: 0 }, parent);
+  const rotation = parent.rotation + localRotation;
 
   return {
-    x: parent.x + (location?.x || 0),
-    y: parent.y + (location?.y || 0),
+    x: translatedLocation.x,
+    y: translatedLocation.y,
+    rotation,
+    cos: Math.cos(rotation),
+    sin: Math.sin(rotation),
+  };
+}
+
+function createPlacement() {
+  return {
+    x: 0,
+    y: 0,
+    rotation: 0,
+    cos: 1,
+    sin: 0,
+  };
+}
+
+function transformLocalPoint(point, placement) {
+  return {
+    x: placement.x + point.x * placement.cos - point.y * placement.sin,
+    y: placement.y + point.x * placement.sin + point.y * placement.cos,
   };
 }
 
@@ -188,6 +214,16 @@ function readPoint(pointRef, entitiesById) {
   }
 
   return parsePointArgument(point.args[0]);
+}
+
+function readDirection(directionRef, entitiesById) {
+  const direction = entitiesById.get(directionRef);
+
+  if (!direction || direction.type !== "IFCDIRECTION") {
+    return null;
+  }
+
+  return parsePointArgument(direction.args[0]);
 }
 
 function parsePointArgument(value) {
