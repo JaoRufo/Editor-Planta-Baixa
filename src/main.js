@@ -120,6 +120,7 @@ const viewerState = {
 
 const projectState = {
   activeSelection: null,
+  selections: [],
   lineHighlights: [],
   selectedPdfItems: [],
   annotations: [],
@@ -129,8 +130,138 @@ const projectState = {
 
 let annotationDrag = null;
 
+const MIN_TEXT_WIDTH = 10;
+const MIN_TEXT_HEIGHT = 8;
+
 function setStatus(message) {
   ui.statusMessage.textContent = message;
+}
+
+function normalizeDegrees(value) {
+  return ((value % 360) + 360) % 360;
+}
+
+function getNumericInputValue(id, fallback) {
+  const value = Number(document.getElementById(id)?.value);
+
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function rotateViewerDelta(deltaX, deltaY, degrees) {
+  const radians = (-degrees * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+
+  return {
+    x: deltaX * cos - deltaY * sin,
+    y: deltaX * sin + deltaY * cos,
+  };
+}
+
+function calculateResponsiveTextSize(text, width, height) {
+  const availableWidth = Math.max(width - 2, 1);
+  const availableHeight = Math.max(height - 2, 1);
+  let min = 1;
+  let max = Math.min(48, availableHeight);
+
+  for (let step = 0; step < 8; step += 1) {
+    const size = (min + max) / 2;
+
+    if (doesTextFit(text, availableWidth, availableHeight, size)) {
+      min = size;
+    } else {
+      max = size;
+    }
+  }
+
+  return Math.max(1, min);
+}
+
+function doesTextFit(text, width, height, fontSize) {
+  const normalizedText = String(text).trim() || " ";
+  const averageCharacterWidth = fontSize * 0.56;
+  const maxCharactersPerLine = Math.max(
+    1,
+    Math.floor(width / averageCharacterWidth),
+  );
+  const lineHeight = fontSize * 1.05;
+  const lineCount = estimateWrappedLineCount(
+    normalizedText,
+    maxCharactersPerLine,
+  );
+
+  return lineCount * lineHeight <= height;
+}
+
+function estimateWrappedLineCount(text, maxCharactersPerLine) {
+  const words = text.split(/\s+/);
+  let lines = 1;
+  let currentLineLength = 0;
+
+  for (const word of words) {
+    if (word.length > maxCharactersPerLine) {
+      const remainingCharacters = Math.max(
+        maxCharactersPerLine - currentLineLength,
+        0,
+      );
+      const overflowLength = Math.max(word.length - remainingCharacters, 0);
+
+      lines += Math.ceil(overflowLength / maxCharactersPerLine);
+      currentLineLength = word.length % maxCharactersPerLine;
+      continue;
+    }
+
+    const nextLength = currentLineLength
+      ? currentLineLength + 1 + word.length
+      : word.length;
+
+    if (nextLength > maxCharactersPerLine) {
+      lines += 1;
+      currentLineLength = word.length;
+    } else {
+      currentLineLength = nextLength;
+    }
+  }
+
+  return lines;
+}
+
+function cloneSelection(selection) {
+  return {
+    ...selection,
+    points: selection.points?.map((point) => ({ x: point.x, y: point.y })) || null,
+  };
+}
+
+function getSelectionSignature(selection) {
+  const points = selection.points?.length
+    ? selection.points
+    : [
+        { x: selection.x, y: selection.y },
+        { x: selection.x + selection.width, y: selection.y },
+        { x: selection.x + selection.width, y: selection.y + selection.height },
+        { x: selection.x, y: selection.y + selection.height },
+      ];
+
+  return [
+    selection.page,
+    selection.type || "rectangle",
+    ...points.flatMap((point) => [Math.round(point.x), Math.round(point.y)]),
+  ].join(":");
+}
+
+function addPersistentSelection(selection) {
+  const signature = getSelectionSignature(selection);
+
+  if (
+    projectState.selections.some(
+      (existingSelection) => getSelectionSignature(existingSelection) === signature,
+    )
+  ) {
+    return;
+  }
+
+  projectState.selections = [...projectState.selections, cloneSelection(selection)];
 }
 
 function updateZoomInterface() {
@@ -489,22 +620,15 @@ function setSelectionShapeMode(shapeMode) {
 }
 
 function updateSelectionOverlay() {
-  const selection = projectState.activeSelection;
-  const shapeElement = ui.selectionOverlay.querySelector(
-    ".selection-overlay-shape",
-  );
-  const previewElement = ui.selectionOverlay.querySelector(
-    ".selection-overlay-preview",
-  );
+  ui.selectionOverlay.replaceChildren();
 
-  if (!selection || selection.page !== viewerState.currentPage) {
-    hideSelectionOverlay();
-    shapeElement?.setAttribute("points", "");
-    previewElement?.setAttribute("points", "");
-    return;
-  }
-
-  const selectionPoints = getSelectionViewerPoints(selection);
+  const visibleSelections = projectState.selections.filter(
+    (selection) => selection.page === viewerState.currentPage,
+  );
+  const activeSelection =
+    projectState.activeSelection?.page === viewerState.currentPage
+      ? projectState.activeSelection
+      : null;
   const previewPoints =
     viewerState.selectionShapeMode === "polygon" &&
     viewerState.isSelecting &&
@@ -515,9 +639,48 @@ function updateSelectionOverlay() {
         ])
       : [];
 
+  if (!visibleSelections.length && !activeSelection && !previewPoints.length) {
+    hideSelectionOverlay();
+    return;
+  }
+
   showSelectionOverlay();
-  shapeElement?.setAttribute("points", pointsToSvgAttribute(selectionPoints));
-  previewElement?.setAttribute("points", pointsToSvgAttribute(previewPoints));
+
+  for (const selection of visibleSelections) {
+    appendSelectionOverlayPolygon(selection, "selection-overlay-shape");
+  }
+
+  if (activeSelection) {
+    appendSelectionOverlayPolygon(
+      activeSelection,
+      "selection-overlay-shape selection-overlay-active",
+    );
+  }
+
+  if (previewPoints.length) {
+    const previewElement = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "polyline",
+    );
+
+    previewElement.setAttribute("class", "selection-overlay-preview");
+    previewElement.setAttribute("points", pointsToSvgAttribute(previewPoints));
+    ui.selectionOverlay.appendChild(previewElement);
+  }
+}
+
+function appendSelectionOverlayPolygon(selection, className) {
+  const shapeElement = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "polygon",
+  );
+
+  shapeElement.setAttribute("class", className);
+  shapeElement.setAttribute(
+    "points",
+    pointsToSvgAttribute(getSelectionViewerPoints(selection)),
+  );
+  ui.selectionOverlay.appendChild(shapeElement);
 }
 
 function showSelectionOverlay() {
@@ -560,8 +723,8 @@ function clearSelection(reason = "Selecao removida.") {
   projectState.lineHighlights = [];
   projectState.selectedPdfItems = [];
   projectState.selectedAnnotationId = null;
-  hideSelectionOverlay();
   clearLineHighlights();
+  updateSelectionOverlay();
   updateSelectionPanel();
   renderAnnotations();
   setStatus(reason);
@@ -805,6 +968,7 @@ function finishPolygonSelection() {
 }
 
 function finishSelection(selection) {
+  addPersistentSelection(selection);
   updateSelectionOverlay();
   projectState.selectedPdfItems = findPdfVectorItemsForSelection(
     getPdfVectorItemsForCurrentPage(),
@@ -945,21 +1109,65 @@ function updateSelectionPanel() {
 function saveAnnotationFromPanel() {
   const input = document.getElementById("annotationTextInput");
   const text = input?.value?.trim() || "";
+  const selectedAnnotation = projectState.annotations.find(
+    (annotation) => annotation.id === projectState.selectedAnnotationId,
+  );
 
   if (!projectState.activeSelection || !text) {
     setStatus("Selecione uma area e informe um texto.");
     return;
   }
 
+  const textX = selectedAnnotation?.textX ?? projectState.activeSelection.x;
+  const textY =
+    selectedAnnotation?.textY ??
+    projectState.activeSelection.y + projectState.activeSelection.height;
+  const maxTextWidth = Math.max(
+    MIN_TEXT_WIDTH,
+    projectState.activeSelection.x + projectState.activeSelection.width - textX,
+  );
+  const maxTextHeight = Math.max(
+    MIN_TEXT_HEIGHT,
+    textY - projectState.activeSelection.y,
+  );
+  const textWidth = Math.max(
+    MIN_TEXT_WIDTH,
+    Math.min(
+      maxTextWidth,
+      getNumericInputValue(
+        "annotationTextWidthInput",
+        projectState.activeSelection.width,
+      ),
+    ),
+  );
+  const textHeight = Math.max(
+    MIN_TEXT_HEIGHT,
+    Math.min(
+      maxTextHeight,
+      getNumericInputValue(
+        "annotationTextHeightInput",
+        projectState.activeSelection.height,
+      ),
+    ),
+  );
+  const textRotation = normalizeDegrees(
+    getNumericInputValue("annotationTextRotationInput", 0),
+  );
+
   if (projectState.selectedAnnotationId) {
     projectState.annotations = updateAnnotation(
       projectState.annotations,
       projectState.selectedAnnotationId,
-      { text },
+      { text, textWidth, textHeight, textRotation },
     );
     setStatus("Anotacao atualizada");
   } else {
-    const annotation = createAnnotation(projectState.activeSelection, text);
+    const annotation = {
+      ...createAnnotation(projectState.activeSelection, text),
+      textWidth,
+      textHeight,
+      textRotation,
+    };
     projectState.annotations = [...projectState.annotations, annotation];
     projectState.selectedAnnotationId = annotation.id;
     setStatus("Anotacao inserida");
@@ -1004,6 +1212,7 @@ function startAnnotationDrag(event) {
   }
 
   event.stopPropagation();
+  event.preventDefault();
   projectState.selectedAnnotationId = annotation.id;
   projectState.activeSelection = {
     type: annotation.type || "rectangle",
@@ -1016,14 +1225,34 @@ function startAnnotationDrag(event) {
   };
 
   const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
+  const action = event.target.dataset.annotationAction || "move";
+  const textWidth = annotation.textWidth ?? annotation.width;
+  const textHeight = annotation.textHeight ?? annotation.height;
+  const textRotation = annotation.textRotation || 0;
+  const textTopLeft = pdfToViewerCoordinates(
+    viewerState,
+    annotation.textX ?? annotation.x,
+    annotation.textY ?? annotation.y + annotation.height,
+  );
 
   annotationDrag = {
+    mode: action,
     pointerId: event.pointerId,
     annotationId,
     startPdf: viewerToPdfCoordinates(viewerState, viewerPoint.x, viewerPoint.y),
+    startViewer: viewerPoint,
     textStart: {
       x: annotation.textX ?? annotation.x,
       y: annotation.textY ?? annotation.y + annotation.height,
+    },
+    sizeStart: {
+      width: textWidth,
+      height: textHeight,
+    },
+    rotationStart: textRotation,
+    centerViewer: {
+      x: textTopLeft.x + (textWidth * viewerState.zoom) / 2,
+      y: textTopLeft.y + (textHeight * viewerState.zoom) / 2,
     },
   };
 
@@ -1038,10 +1267,6 @@ function moveAnnotation(event) {
     return;
   }
 
-  const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
-  const currentPdf = viewerToPdfCoordinates(viewerState, viewerPoint.x, viewerPoint.y);
-  const deltaX = currentPdf.x - annotationDrag.startPdf.x;
-  const deltaY = currentPdf.y - annotationDrag.startPdf.y;
   const annotation = projectState.annotations.find(
     (item) => item.id === annotationDrag.annotationId,
   );
@@ -1050,6 +1275,27 @@ function moveAnnotation(event) {
     return;
   }
 
+  if (annotationDrag.mode === "resize") {
+    resizeAnnotationText(event, annotation);
+    return;
+  }
+
+  if (annotationDrag.mode === "rotate") {
+    rotateAnnotationText(event, annotation);
+    return;
+  }
+
+  moveAnnotationText(event, annotation);
+}
+
+function moveAnnotationText(event, annotation) {
+  const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
+  const currentPdf = viewerToPdfCoordinates(viewerState, viewerPoint.x, viewerPoint.y);
+  const deltaX = currentPdf.x - annotationDrag.startPdf.x;
+  const deltaY = currentPdf.y - annotationDrag.startPdf.y;
+  const textWidth = annotation.textWidth ?? annotation.width;
+  const textHeight = annotation.textHeight ?? annotation.height;
+
   projectState.annotations = updateAnnotation(
     projectState.annotations,
     annotationDrag.annotationId,
@@ -1057,11 +1303,11 @@ function moveAnnotation(event) {
       textX: clamp(
         annotationDrag.textStart.x + deltaX,
         annotation.x,
-        annotation.x + annotation.width,
+        annotation.x + Math.max(annotation.width - textWidth, 0),
       ),
       textY: clamp(
         annotationDrag.textStart.y + deltaY,
-        annotation.y,
+        annotation.y + textHeight,
         annotation.y + annotation.height,
       ),
     },
@@ -1074,18 +1320,85 @@ function moveAnnotation(event) {
   updateAnnotationElementPosition(updatedAnnotation);
 }
 
+function resizeAnnotationText(event, annotation) {
+  const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
+  const deltaX = viewerPoint.x - annotationDrag.startViewer.x;
+  const deltaY = viewerPoint.y - annotationDrag.startViewer.y;
+  const localDelta = rotateViewerDelta(deltaX, deltaY, annotationDrag.rotationStart);
+  const textX = annotation.textX ?? annotation.x;
+  const textY = annotation.textY ?? annotation.y + annotation.height;
+  const maxWidth = Math.max(
+    annotation.x + annotation.width - textX,
+    MIN_TEXT_WIDTH,
+  );
+  const maxHeight = Math.max(textY - annotation.y, MIN_TEXT_HEIGHT);
+  const textWidth = clamp(
+    annotationDrag.sizeStart.width + localDelta.x / viewerState.zoom,
+    MIN_TEXT_WIDTH,
+    maxWidth,
+  );
+  const textHeight = clamp(
+    annotationDrag.sizeStart.height + localDelta.y / viewerState.zoom,
+    MIN_TEXT_HEIGHT,
+    maxHeight,
+  );
+
+  projectState.annotations = updateAnnotation(
+    projectState.annotations,
+    annotationDrag.annotationId,
+    { textWidth, textHeight },
+  );
+
+  updateAnnotationElementPosition(
+    projectState.annotations.find((item) => item.id === annotationDrag.annotationId),
+  );
+}
+
+function rotateAnnotationText(event, annotation) {
+  const viewerPoint = getViewerCoordinatesFromEvent(ui.viewer, event);
+  const angle =
+    (Math.atan2(
+      viewerPoint.y - annotationDrag.centerViewer.y,
+      viewerPoint.x - annotationDrag.centerViewer.x,
+    ) *
+      180) /
+    Math.PI;
+  const textRotation = normalizeDegrees(angle + 90);
+
+  projectState.annotations = updateAnnotation(
+    projectState.annotations,
+    annotation.id,
+    { textRotation },
+  );
+
+  updateAnnotationElementPosition(
+    projectState.annotations.find((item) => item.id === annotation.id),
+  );
+}
+
 function endAnnotationDrag(event) {
   if (!annotationDrag || event.pointerId !== annotationDrag.pointerId) {
     return;
   }
 
+  const statusByMode = {
+    move: "Texto movido",
+    resize: "Area do texto ajustada",
+    rotate: "Texto rotacionado",
+  };
+  const status = statusByMode[annotationDrag.mode] || "Anotacao atualizada";
+
   annotationDrag = null;
   updateSelectionPanel();
   renderAnnotations();
-  setStatus("Anotacao movida");
+  setStatus(status);
 }
 
 function updateAnnotationElementPosition(annotation) {
+  if (!annotation) {
+    return;
+  }
+
   const element = ui.annotationLayer.querySelector(
     `[data-annotation-id="${annotation.id}"]`,
   );
@@ -1102,8 +1415,23 @@ function updateAnnotationElementPosition(annotation) {
 
   element.style.left = `${textTopLeft.x}px`;
   element.style.top = `${textTopLeft.y}px`;
-  element.style.maxWidth = `${Math.max(annotation.width * viewerState.zoom, 80)}px`;
-  element.style.minHeight = "30px";
+  const renderedWidth = Math.max(
+    (annotation.textWidth ?? annotation.width) * viewerState.zoom,
+    24,
+  );
+  const renderedHeight = Math.max(
+    (annotation.textHeight ?? annotation.height) * viewerState.zoom,
+    18,
+  );
+
+  element.style.width = `${renderedWidth}px`;
+  element.style.height = `${renderedHeight}px`;
+  element.style.transform = `rotate(${annotation.textRotation || 0}deg)`;
+  element.querySelector(".annotation-text").style.fontSize = `${calculateResponsiveTextSize(
+    annotation.text,
+    renderedWidth,
+    renderedHeight,
+  )}px`;
 }
 
 function startPan(event) {
@@ -1235,6 +1563,7 @@ function saveCurrentProject() {
     panX: viewerState.panX,
     panY: viewerState.panY,
     activeSelection: projectState.activeSelection,
+    selections: projectState.selections,
     lineHighlights: projectState.lineHighlights,
     selectedPdfItems: projectState.selectedPdfItems,
     annotations: projectState.annotations,
@@ -1262,6 +1591,7 @@ async function loadSavedProject() {
   viewerState.panX = savedState.panX || 0;
   viewerState.panY = savedState.panY || 0;
   projectState.activeSelection = savedState.activeSelection || null;
+  projectState.selections = savedState.selections || [];
   projectState.lineHighlights = savedState.lineHighlights || [];
   projectState.selectedPdfItems = savedState.selectedPdfItems || [];
   projectState.annotations = savedState.annotations || [];
@@ -1279,6 +1609,7 @@ async function loadSavedProject() {
 function clearLocalProject() {
   clearProjectState();
   projectState.annotations = [];
+  projectState.selections = [];
   projectState.lineHighlights = [];
   projectState.selectedPdfItems = [];
   clearSelection("Projeto local limpo.");

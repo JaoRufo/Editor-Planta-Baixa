@@ -63,6 +63,7 @@ export function renderSelectionPanel({
       <textarea id="annotationTextInput" class="annotation-text-input" rows="4" placeholder="Texto da anotacao">${escapeHtml(
         selectedAnnotation?.text || "",
       )}</textarea>
+      ${renderAnnotationGeometryControls(selectedAnnotation, selection)}
       <div class="annotation-actions">
         <button id="saveAnnotationButton" class="panel-button" type="button">${
           selectedAnnotation ? "Atualizar" : "Inserir"
@@ -111,6 +112,29 @@ function renderPdfItems(items) {
 
 function getSelectionTypeLabel(selection) {
   return selection.type === "polygon" ? "Poligono" : "Retangulo";
+}
+
+function renderAnnotationGeometryControls(annotation, selection) {
+  const width = Math.round(annotation?.textWidth ?? selection.width);
+  const height = Math.round(annotation?.textHeight ?? selection.height);
+  const rotation = Math.round(annotation?.textRotation ?? 0);
+
+  return `
+    <div class="annotation-geometry-controls">
+      <label>
+        <span>Largura texto</span>
+        <input id="annotationTextWidthInput" type="number" min="10" step="1" value="${width}" />
+      </label>
+      <label>
+        <span>Altura texto</span>
+        <input id="annotationTextHeightInput" type="number" min="8" step="1" value="${height}" />
+      </label>
+      <label>
+        <span>Rotacao</span>
+        <input id="annotationTextRotationInput" type="number" min="0" max="359" step="1" value="${rotation}" />
+      </label>
+    </div>
+  `;
 }
 
 function renderIfcEntities(entities) {
