@@ -576,6 +576,148 @@ button {
   content: "";
 }
 
+/*
+|--------------------------------------------------------------------------
+| IFC 3D Viewer
+|--------------------------------------------------------------------------
+*/
+
+.ifc-3d-viewer {
+  position: absolute;
+
+  inset: 0;
+
+  overflow: hidden;
+
+  background: #181818;
+
+  touch-action: none;
+}
+
+.ifc-3d-canvas {
+  display: block;
+
+  width: 100%;
+  height: 100%;
+
+  cursor: grab;
+}
+
+.ifc-3d-canvas:active {
+  cursor: grabbing;
+}
+
+.ifc-3d-panel {
+  position: absolute;
+
+  top: 18px;
+  right: 18px;
+  z-index: 12;
+
+  display: flex;
+  flex-direction: column;
+
+  width: min(300px, calc(100% - 36px));
+  max-height: calc(100% - 36px);
+
+  border: 1px solid #3f3f3f;
+  border-radius: 8px;
+
+  background: rgba(34, 34, 34, 0.96);
+
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+
+  color: #d8d8d8;
+}
+
+.ifc-3d-panel-header {
+  display: grid;
+
+  gap: 3px;
+
+  min-height: 48px;
+
+  flex-shrink: 0;
+
+  padding: 9px 12px;
+
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.ifc-3d-panel-header h2 {
+  margin: 0;
+
+  color: #eeeeee;
+
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ifc-3d-panel-header span {
+  color: #9a9a9a;
+
+  font-size: 11px;
+}
+
+.ifc-3d-actions {
+  display: flex;
+  flex-wrap: wrap;
+
+  gap: 8px;
+
+  padding: 12px;
+
+  border-bottom: 1px solid #353535;
+}
+
+.ifc-3d-info {
+  min-height: 0;
+
+  padding: 12px;
+
+  overflow: auto;
+
+  font-size: 12px;
+}
+
+.ifc-3d-info p {
+  margin: 0;
+
+  color: #a8a8a8;
+
+  line-height: 1.4;
+}
+
+.ifc-3d-info dl {
+  display: grid;
+
+  gap: 8px;
+
+  margin: 0;
+}
+
+.ifc-3d-info dl > div {
+  display: grid;
+
+  gap: 3px;
+}
+
+.ifc-3d-info dt {
+  color: #878787;
+}
+
+.ifc-3d-info dd {
+  min-width: 0;
+
+  margin: 0;
+
+  overflow-wrap: anywhere;
+
+  color: #eeeeee;
+
+  font-variant-numeric: tabular-nums;
+}
+
 .selection-panel {
   position: absolute;
 
@@ -912,6 +1054,12 @@ button {
   opacity: 0.4;
 
   cursor: default;
+}
+
+#viewSelectionIn3dButton {
+  width: 100%;
+
+  margin: 0 0 12px;
 }
 
 .confirm-dialog-backdrop {

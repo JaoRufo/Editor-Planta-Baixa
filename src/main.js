@@ -20,7 +20,11 @@ import {
   updateAnnotation,
 } from "./annotations/annotationStore.js";
 import { renderAnnotationLayer } from "./annotations/annotationLayer.js";
-import { loadIfcModel } from "./ifc/ifcService.js";
+import {
+  findIfcEntitiesForSelection,
+  loadIfcModel,
+} from "./ifc/ifcService.js";
+import { IfcThreeViewer } from "./ifc/ifcThreeViewer.js";
 import {
   clearProjectState,
   loadProjectState,
@@ -76,6 +80,15 @@ const ui = getRequiredElements({
   zoomOutButton: "#zoomOutButton",
   zoomInButton: "#zoomInButton",
   resetViewButton: "#resetViewButton",
+  view2dButton: "#view2dButton",
+  view3dButton: "#view3dButton",
+  ifc3dViewer: "#ifc3dViewer",
+  ifc3dCanvas: "#ifc3dCanvas",
+  ifc3dInfo: "#ifc3dInfo",
+  ifc3dStatus: "#ifc3dStatus",
+  ifc3dIsolateButton: "#ifc3dIsolateButton",
+  ifc3dShowAllButton: "#ifc3dShowAllButton",
+  ifc3dHideSelectedButton: "#ifc3dHideSelectedButton",
   selectionOverlay: "#selectionOverlay",
   selectionPanel: "#selectionPanel",
   selectionPanelContent: "#selectionPanelContent",
@@ -121,6 +134,7 @@ const viewerState = {
   renderPending: false,
   lastWheelLogTime: 0,
   vectorItemsByPage: new Map(),
+  viewMode: "2d",
 };
 
 const projectState = {
@@ -135,12 +149,120 @@ const projectState = {
 
 let annotationDrag = null;
 let confirmDialogAction = null;
+let ifcThreeViewer = null;
 
 const MIN_TEXT_WIDTH = 10;
 const MIN_TEXT_HEIGHT = 8;
 
 function setStatus(message) {
   ui.statusMessage.textContent = message;
+}
+
+function getPageBounds() {
+  return {
+    page: viewerState.currentPage,
+    width: viewerState.pageWidth,
+    height: viewerState.pageHeight,
+  };
+}
+
+async function ensureIfcThreeViewer() {
+  if (!ifcThreeViewer) {
+    ifcThreeViewer = new IfcThreeViewer({
+      rootElement: ui.ifc3dViewer,
+      canvasElement: ui.ifc3dCanvas,
+      infoElement: ui.ifc3dInfo,
+      statusElement: ui.ifc3dStatus,
+      isolateButton: ui.ifc3dIsolateButton,
+      showAllButton: ui.ifc3dShowAllButton,
+      hideSelectedButton: ui.ifc3dHideSelectedButton,
+      log,
+      logWarning,
+    });
+
+    await ifcThreeViewer.initialize();
+  }
+
+  if (projectState.ifcModel) {
+    ifcThreeViewer.setModel(projectState.ifcModel);
+  }
+
+  return ifcThreeViewer;
+}
+
+async function setViewMode(mode, options = {}) {
+  if (mode !== "2d" && mode !== "3d") {
+    logWarning(`Modo de visualizacao invalido: ${mode}`);
+    return;
+  }
+
+  if (mode === "3d" && !projectState.ifcModel) {
+    setStatus("IFC ainda nao carregado para o modo 3D");
+    return;
+  }
+
+  let prepared3dViewer = null;
+
+  if (mode === "3d") {
+    try {
+      prepared3dViewer = await ensureIfcThreeViewer();
+    } catch (error) {
+      logError("Erro ao preparar visualizacao 3D.", error);
+      setStatus("Erro ao preparar visualizacao 3D");
+      return;
+    }
+  }
+
+  viewerState.viewMode = mode;
+  const is3dMode = mode === "3d";
+
+  ui.view2dButton.classList.toggle("is-active", !is3dMode);
+  ui.view2dButton.setAttribute("aria-pressed", String(!is3dMode));
+  ui.view3dButton.classList.toggle("is-active", is3dMode);
+  ui.view3dButton.setAttribute("aria-pressed", String(is3dMode));
+
+  for (const control of document.querySelectorAll(".view-2d-control")) {
+    control.toggleAttribute("hidden", is3dMode);
+  }
+
+  if (is3dMode) {
+    ui.viewer.hidden = true;
+    ui.selectionPanel.hidden = true;
+
+    prepared3dViewer.show({
+      focusEntities: options.focusEntities || [],
+      focusSelection: options.focusSelection || null,
+    });
+    setStatus("Modo 3D ativo");
+    log("Modo 3D ativo.", {
+      entidadesDestacadas: options.focusEntities?.length || 0,
+    });
+    return;
+  }
+
+  ifcThreeViewer?.hide();
+  ui.viewer.hidden = false;
+  updateSelectionPanel();
+  setStatus("Modo 2D ativo");
+  log("Modo 2D ativo.");
+}
+
+async function viewActiveSelectionIn3d() {
+  if (!projectState.activeSelection) {
+    setStatus("Selecione uma area antes de visualizar em 3D");
+    return;
+  }
+
+  const ifcResult = findIfcEntitiesForSelection(
+    projectState.ifcModel,
+    projectState.activeSelection,
+    getPageBounds(),
+  );
+
+  await setViewMode("3d", {
+    focusEntities: ifcResult.entities,
+    focusSelection: ifcResult.ifcSelection,
+  });
 }
 
 function normalizeDegrees(value) {
@@ -1158,13 +1280,10 @@ function updateSelectionPanel() {
     selectedAnnotation,
     ifcModel: projectState.ifcModel,
     pdfItems: projectState.selectedPdfItems,
-    pageBounds: {
-      page: viewerState.currentPage,
-      width: viewerState.pageWidth,
-      height: viewerState.pageHeight,
-    },
+    pageBounds: getPageBounds(),
     onSaveAnnotation: saveAnnotationFromPanel,
     onDeleteAnnotation: deleteSelectedAnnotation,
+    onViewSelectionIn3d: viewActiveSelectionIn3d,
   });
 }
 
@@ -1809,6 +1928,7 @@ async function loadIfc() {
       ).length,
     });
 
+    ifcThreeViewer?.setModel(projectState.ifcModel);
     updateSelectionPanel();
     setStatus(`IFC carregado - ${projectState.ifcModel.products.length} entidades`);
   } catch (error) {
@@ -1821,6 +1941,8 @@ function bindEvents() {
   ui.zoomInButton.addEventListener("click", () => zoomIn());
   ui.zoomOutButton.addEventListener("click", () => zoomOut());
   ui.resetViewButton.addEventListener("click", () => resetView());
+  ui.view2dButton.addEventListener("click", () => setViewMode("2d"));
+  ui.view3dButton.addEventListener("click", () => setViewMode("3d"));
   ui.previousPageButton.addEventListener("click", () =>
     goToPage(viewerState.currentPage - 1),
   );
@@ -1855,6 +1977,15 @@ function bindEvents() {
   ui.viewer.addEventListener("contextmenu", handleContextMenu);
 
   window.addEventListener("keydown", (event) => {
+    if (viewerState.viewMode === "3d") {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setViewMode("2d");
+      }
+
+      return;
+    }
+
     if (event.key === "+" || event.key === "=") {
       event.preventDefault();
       zoomIn();

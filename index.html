@@ -59,6 +59,30 @@
 
           <div class="toolbar-group">
             <button
+              id="view2dButton"
+              class="toolbar-button mode-button is-active"
+              type="button"
+              title="Visualizar planta 2D"
+              aria-pressed="true"
+            >
+              2D
+            </button>
+
+            <button
+              id="view3dButton"
+              class="toolbar-button mode-button"
+              type="button"
+              title="Visualizar modelo IFC em 3D"
+              aria-pressed="false"
+            >
+              3D
+            </button>
+          </div>
+
+          <div class="toolbar-separator"></div>
+
+          <div class="toolbar-group view-2d-control">
+            <button
               id="saveProjectButton"
               class="toolbar-button mode-button"
               type="button"
@@ -88,7 +112,7 @@
 
           <div class="toolbar-separator"></div>
 
-          <div class="toolbar-group">
+          <div class="toolbar-group view-2d-control">
             <button
               id="panModeButton"
               class="toolbar-button mode-button is-active"
@@ -110,7 +134,7 @@
             </button>
           </div>
 
-          <div class="toolbar-group selection-shape-controls">
+          <div class="toolbar-group selection-shape-controls view-2d-control">
             <button
               id="polygonSelectionButton"
               class="toolbar-button mode-button"
@@ -124,7 +148,7 @@
 
           <div class="toolbar-separator"></div>
 
-          <div class="toolbar-group">
+          <div class="toolbar-group view-2d-control">
             <button
               id="zoomOutButton"
               class="toolbar-button"
@@ -148,7 +172,7 @@
 
           <button
             id="resetViewButton"
-            class="toolbar-button reset-button"
+            class="toolbar-button reset-button view-2d-control"
             type="button"
             title="Centralizar planta"
           >
@@ -188,6 +212,48 @@
 
           <div id="annotationLayer" class="annotation-layer"></div>
         </div>
+
+        <section id="ifc3dViewer" class="ifc-3d-viewer" hidden>
+          <canvas id="ifc3dCanvas" class="ifc-3d-canvas"></canvas>
+
+          <aside class="ifc-3d-panel">
+            <header class="ifc-3d-panel-header">
+              <h2>Modelo IFC 3D</h2>
+
+              <span id="ifc3dStatus">Aguardando IFC...</span>
+            </header>
+
+            <div class="ifc-3d-actions">
+              <button
+                id="ifc3dShowAllButton"
+                class="panel-button"
+                type="button"
+              >
+                Mostrar tudo
+              </button>
+
+              <button
+                id="ifc3dIsolateButton"
+                class="panel-button"
+                type="button"
+                disabled
+              >
+                Isolar
+              </button>
+
+              <button
+                id="ifc3dHideSelectedButton"
+                class="panel-button"
+                type="button"
+                disabled
+              >
+                Ocultar
+              </button>
+            </div>
+
+            <div id="ifc3dInfo" class="ifc-3d-info"></div>
+          </aside>
+        </section>
 
         <aside id="selectionPanel" class="selection-panel" hidden>
           <header class="selection-panel-header">

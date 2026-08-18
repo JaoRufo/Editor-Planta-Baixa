@@ -65,6 +65,7 @@ function createProduct(entity) {
     name: cleanIfcValue(entity.args[2]) || "(sem nome)",
     description: cleanIfcValue(entity.args[3]),
     objectType: cleanIfcValue(entity.args[4]),
+    longName: cleanIfcValue(entity.args[7]),
     placementRef: getRefId(entity.args[5]),
     representationRef: getRefId(entity.args[6]),
   };
@@ -74,12 +75,17 @@ function enrichProductGeometry(product, entitiesById) {
   const placement = resolvePlacement(product.placementRef, entitiesById);
   const localPoints = resolveProductPoints(product.representationRef, entitiesById);
   const points = localPoints.map((point) => transformLocalPoint(point, placement));
+  const bodyFaces = resolveProductFaces(product.representationRef, entitiesById).map(
+    (face) => face.map((point) => transformLocalPoint(point, placement)),
+  );
 
   return {
     ...product,
     placement,
     points,
     bounds: calculateBounds(points),
+    bodyFaces,
+    bodyBounds: calculateBounds3d(bodyFaces.flat()),
   };
 }
 
@@ -113,6 +119,7 @@ function resolvePlacement(placementRef, entitiesById, seen = new Set()) {
   return {
     x: translatedLocation.x,
     y: translatedLocation.y,
+    z: translatedLocation.z || 0,
     rotation,
     cos: Math.cos(rotation),
     sin: Math.sin(rotation),
@@ -123,6 +130,7 @@ function createPlacement() {
   return {
     x: 0,
     y: 0,
+    z: 0,
     rotation: 0,
     cos: 1,
     sin: 0,
@@ -133,7 +141,68 @@ function transformLocalPoint(point, placement) {
   return {
     x: placement.x + point.x * placement.cos - point.y * placement.sin,
     y: placement.y + point.x * placement.sin + point.y * placement.cos,
+    z: (placement.z || 0) + (point.z || 0),
   };
+}
+
+function resolveProductFaces(representationRef, entitiesById) {
+  const definition = entitiesById.get(representationRef);
+
+  if (!definition || definition.type !== "IFCPRODUCTDEFINITIONSHAPE") {
+    return [];
+  }
+
+  return getRefList(definition.args[2])
+    .map((shapeRef) => entitiesById.get(shapeRef))
+    .filter((shape) => shape?.type === "IFCSHAPEREPRESENTATION")
+    .filter((shape) => cleanIfcValue(shape.args[1]).toUpperCase() === "BODY")
+    .flatMap((shape) => resolveShapeFaces(shape, entitiesById));
+}
+
+function resolveShapeFaces(shape, entitiesById) {
+  return getRefList(shape.args[3]).flatMap((itemRef) =>
+    resolveBrepFaces(itemRef, entitiesById),
+  );
+}
+
+function resolveBrepFaces(itemRef, entitiesById) {
+  const brep = entitiesById.get(itemRef);
+
+  if (!brep || brep.type !== "IFCFACETEDBREP") {
+    return [];
+  }
+
+  const shell = entitiesById.get(getRefId(brep.args[0]));
+
+  if (!shell || shell.type !== "IFCCLOSEDSHELL") {
+    return [];
+  }
+
+  return getRefList(shell.args[0])
+    .map((faceRef) => resolveFace(faceRef, entitiesById))
+    .filter((face) => face.length >= 3);
+}
+
+function resolveFace(faceRef, entitiesById) {
+  const face = entitiesById.get(faceRef);
+
+  if (!face || face.type !== "IFCFACE") {
+    return [];
+  }
+
+  const boundRefs = getRefList(face.args[0]);
+  const outerBound = boundRefs
+    .map((boundRef) => entitiesById.get(boundRef))
+    .find((bound) => bound?.type === "IFCFACEOUTERBOUND");
+  const loop = entitiesById.get(getRefId(outerBound?.args[0]));
+
+  if (!loop || loop.type !== "IFCPOLYLOOP") {
+    return [];
+  }
+
+  return getRefList(loop.args[0])
+    .map((pointRef) => readPoint(pointRef, entitiesById))
+    .filter(Boolean);
 }
 
 function resolveProductPoints(representationRef, entitiesById) {
@@ -240,6 +309,7 @@ function parsePointArgument(value) {
   return {
     x: numbers[0],
     y: numbers[1],
+    z: numbers[2] || 0,
   };
 }
 
@@ -262,6 +332,34 @@ function calculateBounds(points) {
     maxY,
     width: maxX - minX,
     height: maxY - minY,
+  };
+}
+
+function calculateBounds3d(points) {
+  if (!points.length) {
+    return null;
+  }
+
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const zs = points.map((point) => point.z || 0);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const minZ = Math.min(...zs);
+  const maxZ = Math.max(...zs);
+
+  return {
+    minX,
+    minY,
+    minZ,
+    maxX,
+    maxY,
+    maxZ,
+    width: maxX - minX,
+    height: maxY - minY,
+    depth: maxZ - minZ,
   };
 }
 

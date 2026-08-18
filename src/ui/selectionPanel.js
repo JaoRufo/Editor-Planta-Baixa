@@ -13,6 +13,7 @@ export function renderSelectionPanel({
   pageBounds,
   onSaveAnnotation,
   onDeleteAnnotation,
+  onViewSelectionIn3d,
 }) {
   if (!selection) {
     panelElement.hidden = true;
@@ -50,6 +51,9 @@ export function renderSelectionPanel({
       </div>
       ${renderIfcAlignment(ifcResult.alignment, ifcResult.ifcSelection)}
       ${renderIfcEntities(ifcResult.entities)}
+      <button id="viewSelectionIn3dButton" class="panel-button" type="button" ${
+        ifcResult.entities.length ? "" : "disabled"
+      }>Visualizar em 3D</button>
       ${renderIfcSummary(ifcSummary)}
     </section>
 
@@ -82,6 +86,9 @@ export function renderSelectionPanel({
   document
     .getElementById("deleteAnnotationButton")
     ?.addEventListener("click", onDeleteAnnotation);
+  document
+    .getElementById("viewSelectionIn3dButton")
+    ?.addEventListener("click", onViewSelectionIn3d);
 }
 
 function renderPdfItems(items) {
