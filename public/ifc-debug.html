@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>IFC Debug</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: monospace;
+        background: #111;
+        color: #eee;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #sidebar {
+        width: 320px;
+        min-width: 220px;
+        background: #1a1a1a;
+        border-right: 1px solid #333;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #sidebar h2 {
+        padding: 10px 12px;
+        font-size: 13px;
+        background: #222;
+        border-bottom: 1px solid #333;
+      }
+      #stats {
+        padding: 8px 12px;
+        font-size: 11px;
+        color: #aaa;
+        border-bottom: 1px solid #333;
+        line-height: 1.6;
+      }
+      #controls {
+        padding: 6px 8px;
+        background: #1e1e1e;
+        border-bottom: 1px solid #333;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      #controls select,
+      #controls input {
+        width: 100%;
+        background: #333;
+        border: 1px solid #444;
+        color: #eee;
+        padding: 4px 6px;
+        font-size: 11px;
+        font-family: monospace;
+      }
+      #list {
+        flex: 1;
+        overflow-y: auto;
+        font-size: 11px;
+      }
+      .item {
+        padding: 5px 10px;
+        border-bottom: 1px solid #222;
+        cursor: pointer;
+      }
+      .item:hover {
+        background: #2a2a2a;
+      }
+      .item.selected {
+        background: #1a3a5a;
+      }
+      .item-type {
+        color: #7af;
+        font-size: 10px;
+      }
+      .item-name {
+        color: #efe;
+      }
+      .item-meta {
+        color: #666;
+        font-size: 10px;
+      }
+      #canvas-area {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        background: #0a0a0a;
+      }
+      #canvas-area.drag-over {
+        outline: 2px dashed #7af;
+        outline-offset: -4px;
+      }
+      canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+      #status {
+        position: absolute;
+        bottom: 8px;
+        left: 8px;
+        font-size: 11px;
+        color: #888;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 4px 8px;
+        pointer-events: none;
+      }
+      #drop-hint {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        color: #555;
+        pointer-events: none;
+      }
+      #tooltip {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.9);
+        border: 1px solid #555;
+        padding: 6px 10px;
+        font-size: 11px;
+        pointer-events: none;
+        display: none;
+        max-width: 260px;
+        white-space: pre-line;
+        line-height: 1.5;
+      }
+      .floor-badge {
+        display: inline-block;
+        background: #2a3a2a;
+        color: #8c8;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 10px;
+        margin-left: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="sidebar">
+      <h2>IFC Debug</h2>
+      <div id="stats">Aguardando IFC...</div>
+      <div id="controls">
+        <select id="floorSelect" disabled>
+          <option value="">Todos os andares</option>
+        </select>
+        <input
+          id="filterInput"
+          placeholder="Filtrar por tipo ou nome..."
+          disabled
+        />
+      </div>
+      <div id="list"></div>
+    </div>
+    <div id="canvas-area">
+      <canvas id="c"></canvas>
+      <div id="drop-hint">
+        Arraste um arquivo .ifc aqui ou aguarde o carregamento automático
+      </div>
+      <div id="status">Carregando...</div>
+      <div id="tooltip"></div>
+    </div>
+
+    <script type="module">
+      import { loadIfcFromFile } from "/src/ifc/ifcService.js";
+      import { parseIfcText } from "/src/ifc/ifcParser.js";
+
+      const canvas = document.getElementById("c");
+      const ctx = canvas.getContext("2d");
+      const area = document.getElementById("canvas-area");
+      const listEl = document.getElementById("list");
+      const statsEl = document.getElementById("stats");
+      const statusEl = document.getElementById("status");
+      const tooltip = document.getElementById("tooltip");
+      const filterInput = document.getElementById("filterInput");
+      const floorSelect = document.getElementById("floorSelect");
+      const dropHint = document.getElementById("drop-hint");
+
+      let model = null;
+      let selectedId = null;
+      let activeFloorId = ""; // '' = all
+      let pan = { x: 0, y: 0 };
+      let scale = 1;
+      let dragging = false;
+      let dragStart = null;
+      let panStart = null;
+
+      const TYPE_COLORS = {
+        IFCSPACE: "#2255aa",
+        IFCWALL: "#888",
+        IFCWALLSTANDARDCASE: "#999",
+        IFCDOOR: "#c84",
+        IFCWINDOW: "#4ac",
+        IFCCOLUMN: "#a44",
+        IFCSLAB: "#556",
+        IFCFURNISHINGELEMENT: "#585",
+        IFCFLOWTERMINAL: "#a5a",
+        IFCCOVERING: "#667",
+        IFCCURTAINWALL: "#4aa",
+        IFCMEMBER: "#a88",
+        IFCPLATE: "#88a",
+        IFCRAILING: "#ca8",
+        IFCSTAIR: "#8ca",
+        IFCRAMP: "#ac8",
+        IFCROOF: "#c88",
+        IFCBUILDINGELEMENTPROXY: "#777",
+      };
+
+      function colorFor(type) {
+        return TYPE_COLORS[type] || "#555";
+      }
+
+      // ── Load ──────────────────────────────────────────────────────────────
+
+      async function loadDefault() {
+        try {
+          statusEl.textContent = "Carregando IFC padrão...";
+          const res = await fetch("/assets/ifc/modelos/modelo.ifc");
+          if (!res.ok) {
+            statusEl.textContent = `Arquivo padrão não encontrado (${res.status}). Arraste um .ifc.`;
+            dropHint.style.display = "flex";
+            return;
+          }
+          const text = await res.text();
+          applyModel(parseIfcText(text), "modelo.ifc");
+        } catch {
+          statusEl.textContent = "Arraste um arquivo .ifc para começar.";
+          dropHint.style.display = "flex";
+        }
+      }
+
+      function applyModel(parsed, filename) {
+        model = parsed;
+        selectedId = null;
+        activeFloorId = "";
+        dropHint.style.display = "none";
+        buildFloorSelect();
+        buildStats(filename);
+        buildList();
+        fitView();
+        draw();
+        filterInput.disabled = false;
+        floorSelect.disabled = false;
+      }
+
+      // ── Floors ────────────────────────────────────────────────────────────
+
+      function buildFloorSelect() {
+        floorSelect.replaceChildren();
+        const all = document.createElement("option");
+        all.value = "";
+        all.textContent = "Todos os andares";
+        floorSelect.appendChild(all);
+
+        for (const floor of model.floors) {
+          const opt = document.createElement("option");
+          opt.value = String(floor.stepId);
+          opt.textContent = `${floor.name} (elev. ${floor.elevation})`;
+          floorSelect.appendChild(opt);
+        }
+      }
+
+      function activeFloorStepId() {
+        return activeFloorId ? Number(activeFloorId) : undefined;
+      }
+
+      function visibleProducts() {
+        if (!model) return [];
+        const floorId = activeFloorStepId();
+        return model.products.filter(
+          (p) => floorId === undefined || p.floorStepId === floorId,
+        );
+      }
+
+      // ── Stats ─────────────────────────────────────────────────────────────
+
+      function buildStats(filename) {
+        const all = model.products;
+        const visible = visibleProducts();
+        const withGeo = visible.filter((p) => p.bounds).length;
+        const spaces = visible.filter((p) => p.type === "IFCSPACE").length;
+        statsEl.innerHTML =
+          `<b>${filename}</b><br>` +
+          `Schema: ${model.schema} · Unidade: ${model.units.length}<br>` +
+          `Andares: ${model.floors.length} · Total: ${all.length}<br>` +
+          `Visíveis: ${visible.length} · Com geometria: ${withGeo} · Espaços: ${spaces}`;
+      }
+
+      // ── List ──────────────────────────────────────────────────────────────
+
+      function buildList(filter = "") {
+        const f = filter.toLowerCase();
+        const items = visibleProducts().filter(
+          (p) =>
+            !f ||
+            p.type.toLowerCase().includes(f) ||
+            p.name.toLowerCase().includes(f),
+        );
+        listEl.replaceChildren();
+        for (const p of items) {
+          const div = document.createElement("div");
+          div.className = "item" + (p.stepId === selectedId ? " selected" : "");
+          div.dataset.id = p.stepId;
+          const floorBadge = p.floorName
+            ? `<span class="floor-badge">${p.floorName}</span>`
+            : "";
+          div.innerHTML =
+            `<div class="item-type">${p.type}${floorBadge}</div>` +
+            `<div class="item-name">${p.name}</div>` +
+            `<div class="item-meta">#${p.stepId} · ${p.globalId}${p.bounds ? "" : " · sem geometria"}</div>`;
+          div.addEventListener("click", () => selectItem(p.stepId));
+          listEl.appendChild(div);
+        }
+      }
+
+      function selectItem(id) {
+        selectedId = id;
+        buildList(filterInput.value);
+        draw();
+        const p = model.products.find((x) => x.stepId === id);
+        if (p?.bounds) {
+          const cx = (p.bounds.minX + p.bounds.maxX) / 2;
+          const cy = (p.bounds.minY + p.bounds.maxY) / 2;
+          pan.x = canvas.width / 2 - cx * scale;
+          pan.y = canvas.height / 2 - cy * scale;
+          draw();
+        }
+        // Scroll list item into view
+        listEl
+          .querySelector(`[data-id="${id}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      }
+
+      // ── Fit view ──────────────────────────────────────────────────────────
+
+      function fitView() {
+        const products = visibleProducts().filter((p) => p.bounds);
+        if (!products.length) return;
+
+        const minX = Math.min(...products.map((p) => p.bounds.minX));
+        const minY = Math.min(...products.map((p) => p.bounds.minY));
+        const maxX = Math.max(...products.map((p) => p.bounds.maxX));
+        const maxY = Math.max(...products.map((p) => p.bounds.maxY));
+        const w = maxX - minX;
+        const h = maxY - minY;
+        if (!w || !h) return;
+
+        const margin = 40;
+        scale = Math.min(
+          (canvas.width - margin * 2) / w,
+          (canvas.height - margin * 2) / h,
+        );
+        pan.x = margin - minX * scale;
+        pan.y = margin - minY * scale;
+      }
+
+      // ── Draw ──────────────────────────────────────────────────────────────
+
+      function draw() {
+        if (!model) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(pan.x, pan.y);
+        ctx.scale(scale, scale);
+
+        const products = visibleProducts().filter((p) => p.bounds);
+
+        for (const p of products) {
+          const isSelected = p.stepId === selectedId;
+          const color = colorFor(p.type);
+          ctx.globalAlpha = isSelected ? 1 : 0.55;
+
+          if (p.points?.length >= 3) {
+            ctx.beginPath();
+            ctx.moveTo(p.points[0].x, p.points[0].y);
+            for (let i = 1; i < p.points.length; i++)
+              ctx.lineTo(p.points[i].x, p.points[i].y);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = isSelected ? "#fff" : color;
+            ctx.lineWidth = isSelected ? 3 / scale : 1 / scale;
+            ctx.stroke();
+          } else {
+            const b = p.bounds;
+            ctx.fillStyle = color;
+            ctx.fillRect(b.minX, b.minY, b.width, b.height);
+            ctx.strokeStyle = isSelected ? "#fff" : color;
+            ctx.lineWidth = isSelected ? 3 / scale : 1 / scale;
+            ctx.strokeRect(b.minX, b.minY, b.width, b.height);
+          }
+
+          // Label for spaces
+          if (p.type === "IFCSPACE" && p.bounds) {
+            ctx.globalAlpha = 0.9;
+            ctx.fillStyle = "#fff";
+            const fontSize = Math.max(
+              200,
+              Math.min(p.bounds.width, p.bounds.height) * 0.15,
+            );
+            ctx.font = `${fontSize}px sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const cx = (p.bounds.minX + p.bounds.maxX) / 2;
+            const cy = (p.bounds.minY + p.bounds.maxY) / 2;
+            ctx.fillText(p.name, cx, cy);
+          }
+        }
+
+        ctx.restore();
+      }
+
+      // ── Interaction ───────────────────────────────────────────────────────
+
+      area.addEventListener(
+        "wheel",
+        (e) => {
+          e.preventDefault();
+          const rect = area.getBoundingClientRect();
+          const mx = e.clientX - rect.left;
+          const my = e.clientY - rect.top;
+          const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+          pan.x = mx - (mx - pan.x) * factor;
+          pan.y = my - (my - pan.y) * factor;
+          scale *= factor;
+          draw();
+        },
+        { passive: false },
+      );
+
+      area.addEventListener("pointerdown", (e) => {
+        dragging = true;
+        dragStart = { x: e.clientX, y: e.clientY };
+        panStart = { ...pan };
+        area.setPointerCapture(e.pointerId);
+      });
+
+      area.addEventListener("pointermove", (e) => {
+        if (dragging) {
+          pan.x = panStart.x + e.clientX - dragStart.x;
+          pan.y = panStart.y + e.clientY - dragStart.y;
+          draw();
+        } else {
+          showTooltip(e);
+        }
+      });
+
+      area.addEventListener("pointerup", (e) => {
+        if (
+          dragging &&
+          Math.abs(e.clientX - dragStart.x) < 4 &&
+          Math.abs(e.clientY - dragStart.y) < 4
+        ) {
+          pickAt(e);
+        }
+        dragging = false;
+      });
+
+      area.addEventListener("pointerleave", () => {
+        tooltip.style.display = "none";
+      });
+
+      function worldPoint(e) {
+        const rect = area.getBoundingClientRect();
+        return {
+          x: (e.clientX - rect.left - pan.x) / scale,
+          y: (e.clientY - rect.top - pan.y) / scale,
+        };
+      }
+
+      function hitTest(wx, wy) {
+        if (!model) return null;
+        const products = visibleProducts().filter((p) => p.bounds);
+        for (let i = products.length - 1; i >= 0; i--) {
+          const p = products[i];
+          if (
+            wx >= p.bounds.minX &&
+            wx <= p.bounds.maxX &&
+            wy >= p.bounds.minY &&
+            wy <= p.bounds.maxY
+          )
+            return p;
+        }
+        return null;
+      }
+
+      function pickAt(e) {
+        const { x, y } = worldPoint(e);
+        const hit = hitTest(x, y);
+        if (hit) selectItem(hit.stepId);
+      }
+
+      function showTooltip(e) {
+        const { x, y } = worldPoint(e);
+        const hit = hitTest(x, y);
+        if (!hit) {
+          tooltip.style.display = "none";
+          return;
+        }
+        const rect = area.getBoundingClientRect();
+        tooltip.style.display = "block";
+        tooltip.style.left = e.clientX - rect.left + 14 + "px";
+        tooltip.style.top = e.clientY - rect.top + 14 + "px";
+        tooltip.textContent =
+          `#${hit.stepId} ${hit.type}\n${hit.name}` +
+          (hit.floorName ? `\nAndar: ${hit.floorName}` : "") +
+          (hit.bounds
+            ? `\nW: ${Math.round(hit.bounds.width)} H: ${Math.round(hit.bounds.height)}`
+            : "");
+      }
+
+      // ── Drag-and-drop IFC ─────────────────────────────────────────────────
+
+      area.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        area.classList.add("drag-over");
+      });
+      area.addEventListener("dragleave", () =>
+        area.classList.remove("drag-over"),
+      );
+      area.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        area.classList.remove("drag-over");
+        const file = [...e.dataTransfer.files].find((f) =>
+          f.name.endsWith(".ifc"),
+        );
+        if (!file) {
+          statusEl.textContent = "Arquivo não reconhecido. Use um .ifc";
+          return;
+        }
+        statusEl.textContent = `Carregando ${file.name}...`;
+        try {
+          const loaded = await loadIfcFromFile(file);
+          applyModel(loaded, file.name);
+        } catch (err) {
+          statusEl.textContent = `Erro: ${err.message}`;
+        }
+      });
+
+      // ── Controls ──────────────────────────────────────────────────────────
+
+      filterInput.addEventListener("input", () => buildList(filterInput.value));
+
+      floorSelect.addEventListener("change", () => {
+        activeFloorId = floorSelect.value;
+        selectedId = null;
+        buildStats(model.file ?? "modelo.ifc");
+        buildList(filterInput.value);
+        fitView();
+        draw();
+      });
+
+      // ── Resize ────────────────────────────────────────────────────────────
+
+      function resize() {
+        canvas.width = area.clientWidth;
+        canvas.height = area.clientHeight;
+        draw();
+      }
+
+      new ResizeObserver(resize).observe(area);
+      resize();
+      loadDefault();
+    </script>
+  </body>
+</html>
